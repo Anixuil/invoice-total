@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票总金额提取器</title>
+<style>
+  :root {
+    --bg: #0f1420; --card: #1a2233; --border: #2a3550;
+    --text: #e6ebf5; --muted: #8b98b3;
+    --green: #34d399; --yellow: #fbbf24; --red: #f87171;
+    --accent: #6366f1;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+  header {
+    padding: 28px 24px 8px; text-align: center;
+  }
+  header h1 { font-size: 22px; letter-spacing: 1px; }
+  header p { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 16px 20px 60px; }
+
+  #drop {
+    border: 2px dashed var(--border); border-radius: 14px;
+    padding: 48px 20px; text-align: center; cursor: pointer;
+    transition: all .2s; background: var(--card);
+    color: var(--muted); font-size: 15px;
+  }
+  #drop.hover { border-color: var(--accent); background: #202a45; color: var(--text); }
+  #drop strong { color: var(--accent); }
+
+  #grand {
+    display: none; margin-top: 18px; padding: 20px 24px;
+    background: linear-gradient(135deg, #232d4d, #1a2233);
+    border: 1px solid var(--accent); border-radius: 14px;
+    text-align: center;
+  }
+  #grand .label { color: var(--muted); font-size: 13px; }
+  #grand .amount { font-size: 36px; font-weight: 700; color: #fff; margin-top: 4px; }
+  #grand .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  .card {
+    margin-top: 14px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px;
+  }
+  .card .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .card .fname { font-weight: 600; word-break: break-all; }
+  .badge { padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .b-high { background: rgba(52,211,153,.15); color: var(--green); }
+  .b-medium { background: rgba(251,191,36,.15); color: var(--yellow); }
+  .b-low { background: rgba(248,113,113,.15); color: var(--red); }
+  .b-err { background: rgba(248,113,113,.15); color: var(--red); }
+  .card .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .card .total { font-size: 20px; font-weight: 700; margin-top: 8px; }
+  table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .reconcile { margin-top: 10px; font-size: 13px; color: var(--muted); word-break: break-all; }
+  .reconcile.ok { color: var(--green); }
+  .reconcile.fail { color: var(--red); }
+  .err { color: var(--red); font-size: 13px; margin-top: 8px; }
+  .loading { text-align: center; color: var(--muted); padding: 24px; display: none; }
+  .loading .spin {
+    width: 28px; height: 28px; margin: 0 auto 10px;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: rot 0.8s linear infinite;
+  }
+  @keyframes rot { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧾 发票总金额提取器</h1>
+  <p>PDF 发票 → 多路核算 + 交叉验证 + 置信度投票</p>
+</header>
+<div class="wrap">
+  <div id="drop">
+    <div style="font-size:34px;margin-bottom:10px">📁</div>
+    拖拽 PDF 文件到这里，或 <strong>点击选择</strong><br>
+    <span style="font-size:12px">支持多文件批量 · 文件仅在本服务内存处理，不落盘留存</span>
+  </div>
+  <input type="file" id="file" multiple accept=".pdf,.PDF" hidden>
+
+  <div id="grand">
+    <div class="label">全部发票总金额</div>
+    <div class="amount" id="grandAmount">¥0.00</div>
+    <div class="meta" id="grandMeta"></div>
+  </div>
+
+  <div class="loading" id="loading"><div class="spin"></div>正在分析…</div>
+  <div id="list"></div>
+</div>
+
+<script>
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const list = document.getElementById('list');
+const grand = document.getElementById('grand');
+const loading = document.getElementById('loading');
+
+drop.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { if (fileInput.files.length) upload(fileInput.files); });
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('hover'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('hover');
+  if (e.dataTransfer.files.length) upload(e.dataTransfer.files);
+});
+
+async function upload(files) {
+  list.innerHTML = ''; grand.style.display = 'none'; loading.style.display = 'block';
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || resp.statusText);
+    render(data);
+  } catch (err) {
+    loading.style.display = 'none';
+    list.innerHTML = `<div class="card"><div class="err">上传失败：${err.message}</div></div>`;
+  }
+}
+
+function render(data) {
+  loading.style.display = 'none';
+  if (data.grand_total !== null) {
+    grand.style.display = 'block';
+    document.getElementById('grandAmount').textContent = `¥${data.grand_total.toLocaleString('zh-CN', {minimumFractionDigits: 2})}`;
+    document.getElementById('grandMeta').textContent =
+      `${data.ok_count}/${data.files} 份成功 · ${data.low_confidence_count} 份低置信度需人工核对`;
+  }
+  data.results.forEach(r => list.appendChild(card(r)));
+}
+
+function card(r) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  if (!r.ok) {
+    el.innerHTML = `<div class="head"><span class="fname">${esc(r.file)}</span><span class="badge b-err">失败</span></div>
+      <div class="err">${esc(r.error)}</div>`;
+    return el;
+  }
+  const badge = {high:'b-high', medium:'b-medium', low:'b-low'}[r.confidence] || 'b-low';
+  const confText = {high:'高', medium:'中', low:'低'}[r.confidence] || r.confidence;
+  const routes = [
+    ['文本合计字段', r.routes.text.sum, r.routes.text.values],
+    ['表格结构合计', r.routes.table.sum, r.routes.table.values],
+    ['中文大写金额', r.routes.cn.sum, r.routes.cn.values],
+    ['明细行加总', r.routes.items.sum, r.routes.items.values],
+  ];
+  const rows = routes.map(([name, sum, vals]) =>
+    `<tr><td>${name}</td><td class="num">${fmt(sum)}</td><td class="num" style="color:var(--muted)">${vals.map(v=>fmt(v)).join(' / ') || '—'}</td></tr>`
+  ).join('');
+  const recCls = r.reconcile.passed ? 'ok' : 'fail';
+  el.innerHTML = `
+    <div class="head">
+      <span class="fname">${esc(r.file)}</span>
+      <span class="badge ${badge}">置信度 ${confText}</span>
+      <span class="badge b-high" style="background:rgba(99,102,241,.15);color:var(--accent)">${r.invoice_count} 张发票</span>
+    </div>
+    <div class="sub">${esc(r.confidence_desc)}</div>
+    <div class="total">合计 ${fmt(r.total)}</div>
+    <table>
+      <tr><th>核算路</th><th class="num">合计</th><th class="num">各处值</th></tr>
+      ${rows}
+    </table>
+    <div class="reconcile ${recCls}">勾稽验证：${esc(r.reconcile.desc)}</div>
+    ${r.confidence === 'low' ? '<div class="err">⚠️ 各路不一致，请人工核对上述数值</div>' : ''}`;
+  return el;
+}
+
+function fmt(v) {
+  if (v === null || v === undefined) return '—';
+  return '¥' + v.toLocaleString('zh-CN', { minimumFractionDigits: 2 });
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
