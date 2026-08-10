@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<link rel="stylesheet" href="/static/page-transition.css?v=20260810-2">
+<title>周报整合 · 本地工具</title>
+<style data-app-style="weekly">
+  :root {
+    --bg:#e8e4dc; --surface:#f8f6f1; --surface-soft:#efebe3; --line:#d3cec4; --text:#181816;
+    --muted:#77736b; --primary:#cf432d; --green:#436450; --yellow:#9a6a24; --red:#b9362d;
+    --shadow:5px 5px 0 rgba(24,24,22,.08);
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; min-height:100vh; color:var(--text); background-color:var(--bg); background-image:linear-gradient(rgba(24,24,22,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(24,24,22,.025) 1px,transparent 1px); background-size:32px 32px; font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  body::before { content:""; position:fixed; inset:0 auto 0 0; width:7px; background:var(--primary); z-index:40; }
+  button,input,select { font:inherit; }
+  .shell { width:min(1080px,calc(100% - 48px)); margin:0 auto; padding:54px 0 80px; }
+  .top-nav { display:flex; gap:6px; margin-bottom:32px; padding:5px; border:1px solid var(--text); background:var(--surface); box-shadow:var(--shadow); }
+  .top-nav a { padding:9px 14px; color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.04em; text-decoration:none; white-space:nowrap; }
+  .top-nav a:hover { color:var(--text); background:#e8e3da; }
+  .top-nav a.is-active { color:#f8f6f1; background:var(--text); }
+  .hero { display:grid; grid-template-columns:70px minmax(0,1fr) auto; gap:18px; align-items:center; margin-bottom:28px; padding-bottom:24px; border-bottom:2px solid var(--text); }
+  .brand-mark { display:grid; place-items:center; width:70px; height:70px; color:#f8f6f1; background:var(--text); }
+  .brand-mark svg { width:30px; height:30px; }
+  .eyebrow { margin:0 0 7px; color:var(--primary); font-family:Consolas,monospace; font-size:10px; font-weight:700; letter-spacing:.18em; }
+  h1 { margin:0; font-size:clamp(30px,5vw,46px); line-height:1.08; letter-spacing:-.04em; }
+  .hero-copy { grid-column:2; max-width:650px; margin:-9px 0 0; color:#393834; font-size:13px; line-height:1.7; }
+  .album-index { grid-column:3; grid-row:1 / span 2; align-self:stretch; min-width:128px; padding-left:18px; border-left:1px solid var(--text); text-align:right; }
+  .album-index strong { display:block; color:var(--primary); font-family:Georgia,serif; font-size:46px; font-weight:400; line-height:.9; }
+  .album-index span { display:block; margin-top:13px; color:var(--muted); font-family:Consolas,monospace; font-size:9px; letter-spacing:.14em; }
+  .panel { border:1px solid var(--text); border-radius:2px; background:var(--surface); box-shadow:var(--shadow); }
+  .upload-panel { padding:7px; }
+  .drop-zone { display:grid; grid-template-columns:auto 1fr auto; gap:18px; align-items:center; min-height:158px; padding:28px 30px; border:1px dashed #9b978f; background:#fffdf8; cursor:pointer; transition:border-color .16s ease,background .16s ease; }
+  .drop-zone:hover,.drop-zone:focus-visible,.drop-zone.is-dragging { border-color:var(--primary); background:#fffaf3; outline:none; }
+  .upload-icon { display:grid; place-items:center; width:64px; height:64px; border-radius:50%; color:#f8f6f1; background:var(--text); }
+  .upload-icon svg { width:29px; height:29px; }
+  .upload-copy strong { display:block; margin-bottom:7px; font-size:18px; letter-spacing:-.02em; }
+  .upload-copy span { color:var(--muted); font-size:12px; line-height:1.65; }
+  .primary-button,.ghost-button,.icon-button { border-radius:0; cursor:pointer; font-size:12px; font-weight:700; }
+  .primary-button { padding:11px 17px; border:0; color:#fff; background:var(--primary); letter-spacing:.04em; }
+  .primary-button:hover { background:#ac3423; }
+  .ghost-button { padding:9px 13px; border:1px solid currentColor; color:var(--muted); background:transparent; }
+  button:disabled { cursor:not-allowed; opacity:.5; }
+  .selected-file { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; margin-top:7px; padding:13px 15px; border-top:1px solid var(--line); background:var(--surface); }
+  .selected-name { overflow:hidden; font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+  .selected-meta { display:block; margin-top:4px; color:var(--muted); font-size:10px; font-weight:400; }
+  .selected-actions { display:flex; gap:8px; }
+  .progress-panel { margin-top:7px; padding:18px 20px; border-top:1px solid var(--line); background:#fffdf8; }
+  .progress-head { display:flex; align-items:center; gap:12px; }
+  .spinner { width:18px; height:18px; border:2px solid #d8d2c8; border-top-color:var(--primary); border-radius:50%; animation:spin .8s linear infinite; }
+  .progress-head strong { display:block; font-size:13px; }
+  .progress-head span { display:block; margin-top:4px; color:var(--muted); font-size:11px; }
+  .progress-value { margin-left:auto; color:var(--primary); font-family:Georgia,serif; font-size:22px; }
+  .progress-track { height:3px; margin-top:14px; background:#ddd7cd; }
+  .progress-bar { width:0; height:100%; background:var(--primary); transition:width .25s ease; }
+  .progress-steps { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px; }
+  .progress-step { color:#aaa59d; font-size:10px; }
+  .progress-step.is-active,.progress-step.is-done { color:var(--text); }
+  .progress-step::before { content:""; display:inline-block; width:6px; height:6px; margin-right:5px; border:1px solid currentColor; transform:rotate(45deg); }
+  .progress-step.is-done::before { border-color:var(--primary); background:var(--primary); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .workspace { margin-top:26px; }
+  .summary-panel { position:relative; display:grid; grid-template-columns:minmax(260px,1fr) 2fr; gap:18px; padding:24px; overflow:hidden; color:#f7f3eb; background:var(--text); box-shadow:7px 7px 0 var(--primary); }
+  .summary-panel::before { content:"WEEKLY / 周报"; position:absolute; top:18px; right:22px; color:rgba(255,255,255,.08); font-family:Georgia,serif; font-size:clamp(30px,7vw,62px); pointer-events:none; }
+  .summary-kicker { position:relative; color:#aaa69e; font-size:11px; letter-spacing:.12em; }
+  .summary-source { position:relative; margin-top:7px; overflow-wrap:anywhere; font-size:13px; font-weight:700; }
+  .output-name { position:relative; margin-top:7px; color:#d9d3c8; font-size:11px; }
+  .notice { position:relative; margin-top:13px; padding:10px 13px; border-left:2px solid var(--primary); color:#d6d1c7; background:#2c2c29; font-size:11px; line-height:1.6; }
+  .notice.is-warn { border-color:#d6a65a; color:#ead4ac; background:#332d22; }
+  .summary-stats { position:relative; display:grid; grid-template-columns:repeat(4,1fr); gap:9px; }
+  .stat { padding:13px; border:1px solid #4d4b46; background:#242421; }
+  .stat span { display:block; color:#aaa69e; font-size:10px; }
+  .stat strong { display:block; margin-top:6px; color:#f7f3eb; font-family:Georgia,serif; font-size:21px; font-weight:400; }
+  .stat.is-warn strong { color:#d6a65a; }
+  .stat.is-error strong { color:#e38379; }
+  .actions { position:relative; display:flex; justify-content:flex-end; gap:9px; margin-top:14px; }
+  .summary-panel .ghost-button { color:#f7f3eb; }
+  .results-head { margin:40px 2px 12px; padding-bottom:12px; border-bottom:2px solid var(--text); }
+  .results-head h2 { margin:0; font-size:22px; }
+  .results-head p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+  .tabs { display:flex; gap:5px; padding:5px; overflow-x:auto; border:1px solid var(--text); background:var(--surface); box-shadow:var(--shadow); }
+  .tab { flex:0 0 auto; padding:9px 13px; border:0; color:var(--muted); background:transparent; cursor:pointer; font-size:12px; font-weight:700; transition:color .18s ease,background-color .18s ease,transform .18s ease; }
+  .tab:hover { color:var(--text); background:#e8e3da; }
+  .tab:active { transform:translateY(1px) scale(.985); }
+  .tab.is-active { color:#f7f3eb; background:var(--text); }
+  .view-panel { position:relative; margin-top:12px; overflow:hidden; opacity:0; transform:translate3d(0,14px,0) scale(.985); visibility:hidden; pointer-events:none; transition:visibility 0s linear .3s; }
+  .view-panel::before { content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--primary); z-index:3; }
+  .view-panel.is-active-view { opacity:1; transform:none; visibility:visible; pointer-events:auto; transition-delay:0s; }
+  .view-panel.is-entering { animation:weekly-enter .32s cubic-bezier(.22,.61,.36,1) both; }
+  .view-panel.is-leaving { visibility:visible; pointer-events:none; animation:weekly-leave .22s cubic-bezier(.4,0,.8,.6) both; }
+  .table-filter { display:flex; align-items:center; flex-wrap:wrap; gap:9px 12px; padding:12px; border-bottom:1px solid var(--line); background:var(--surface-soft); }
+  .filter-label { color:var(--muted); font-size:11px; font-weight:700; }
+  .filter-input,.filter-select { height:32px; padding:0 9px; border:1px solid #aaa59d; border-radius:0; outline:none; color:var(--text); background:var(--surface); font-size:11px; }
+  .filter-input { width:min(320px,100%); }
+  .filter-input:focus,.filter-select:focus { border-color:var(--primary); box-shadow:0 0 0 2px rgba(207,67,45,.12); }
+  .filter-count { margin-left:auto; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .table-scroll { max-height:min(560px,calc(100vh - 350px)); overflow:auto; }
+  table { width:100%; min-width:1120px; border-collapse:collapse; table-layout:fixed; font-size:11px; }
+  th { position:sticky; top:0; z-index:2; padding:11px 12px; border-bottom:1px solid #aaa59d; color:#625f58; background:#e8e3da; font-size:10px; text-align:left; white-space:nowrap; }
+  td { max-width:0; padding:12px; overflow:hidden; border-top:1px solid var(--line); background:var(--surface); text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
+  tr:hover td { background:#fffaf3; }
+  .badge { display:inline-flex; padding:4px 7px; font-size:10px; font-weight:700; white-space:nowrap; }
+  .badge-success { color:#355643; background:#dfe9df; }
+  .badge-info { color:#734035; background:#f0ddd5; }
+  .badge-warn { color:#755019; background:#eee1bf; }
+  .badge-error { color:#8b2d26; background:#edd8d4; }
+  .path-cell { font-family:Consolas,"Microsoft YaHei",monospace; }
+  .empty { padding:30px; color:var(--muted); text-align:center; font-size:12px; }
+  @keyframes weekly-enter { from { opacity:0; transform:translate3d(0,14px,0) scale(.985); } to { opacity:1; transform:none; } }
+  @keyframes weekly-leave { from { opacity:1; transform:none; } to { opacity:0; transform:translate3d(-12px,0,0) scale(.995); } }
+  @media (max-width:760px) {
+    .shell { width:min(100% - 24px,1080px); padding-top:24px; }
+    .hero { grid-template-columns:54px 1fr; margin-left:4px; }
+    .brand-mark { width:54px; height:54px; }
+    .hero-copy { grid-column:1 / -1; margin-top:-2px; }
+    .album-index { display:none; }
+    .drop-zone { grid-template-columns:auto 1fr; padding:22px 18px; }
+    .drop-zone .primary-button { grid-column:2; justify-self:start; }
+    .summary-panel { grid-template-columns:1fr; }
+    .summary-stats { grid-template-columns:repeat(2,1fr); }
+    .progress-steps { grid-template-columns:repeat(2,1fr); }
+  }
+  @media (prefers-reduced-motion:reduce) { .tab,.view-panel { transition:none; } .view-panel.is-entering,.view-panel.is-leaving { animation:none; } }
+</style>
+</head>
+<body class="page-transition">
+<main class="shell">
+  <nav class="top-nav" aria-label="业务模块"><a href="/">发票核验</a><a href="/jira">Jira 数据处理</a><a class="is-active" href="/weekly-report">周报整合</a></nav>
+  <div id="route-content" class="route-content">
+    <header class="hero">
+      <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5M17 13v3"/></svg></div>
+      <div><p class="eyebrow">本地部门周报工具</p><h1>周报整合</h1></div>
+      <p class="hero-copy">上传部门一周全部项目周报 ZIP，审核每个项目页并生成本周总项目周报、部门周例会和审核报告。</p>
+      <div class="album-index" aria-hidden="true"><strong>03</strong><span>WEEKLY / LOCAL</span></div>
+    </header>
+
+    <section class="panel upload-panel" aria-label="上传部门项目周报压缩包">
+      <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
+        <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
+        <div class="upload-copy"><strong>拖入部门项目周报 ZIP</strong><span>系统递归读取 PPTX，保留目录，按内置项目周报与周例会模板审核、排序和整合。单个 ZIP 最大 500MB。</span></div>
+        <button class="primary-button" type="button">选择 ZIP</button>
+      </div>
+      <div id="selectedFile" class="selected-file" hidden><div><div id="selectedName" class="selected-name"></div><span id="selectedMeta" class="selected-meta"></span></div><div class="selected-actions"><button id="removeButton" class="ghost-button" type="button">移除</button><button id="startButton" class="primary-button" type="button">开始整合</button></div></div>
+      <div id="progress" class="progress-panel" hidden aria-live="polite">
+        <div class="progress-head"><div class="spinner" aria-hidden="true"></div><div><strong id="progressTitle">正在处理周报</strong><span id="progressText">等待开始</span></div><div id="progressValue" class="progress-value">0%</div></div>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <div class="progress-steps"><span data-step="1" class="progress-step">扫描目录</span><span data-step="2" class="progress-step">审核 PPT</span><span data-step="3" class="progress-step">整合总周报</span><span data-step="4" class="progress-step">生成周例会</span></div>
+      </div>
+      <input id="file" type="file" accept=".zip,.ZIP" hidden>
+    </section>
+
+    <section id="workspace" class="workspace" hidden>
+      <div class="panel summary-panel">
+        <div><div class="summary-kicker">来源压缩包</div><div id="sourceName" class="summary-source">—</div><div id="outputName" class="output-name">—</div><div id="summaryNotice" class="notice">—</div></div>
+        <div><div class="summary-stats"><div class="stat"><span>模板项目</span><strong id="projectStat">0</strong></div><div class="stat"><span>已对应</span><strong id="matchedStat">0</strong></div><div class="stat is-error"><span>错误</span><strong id="errorStat">0</strong></div><div class="stat is-warn"><span>待确认</span><strong id="warningStat">0</strong></div></div><div class="actions"><button id="clearButton" class="ghost-button" type="button">清空结果</button><button id="downloadButton" class="primary-button" type="button" disabled>下载三件套</button></div></div>
+      </div>
+      <div class="results-head"><h2>整合与审核结果</h2><p>所有问题都标明源文件、页码、对象位置和处理建议。</p></div>
+      <div class="tabs" role="tablist"><button class="tab is-active" data-view="assemblyView" type="button">合并清单</button><button class="tab" data-view="auditView" type="button">审核结果</button><button class="tab" data-view="qaView" type="button">生成质量</button><button class="tab" data-view="meetingView" type="button">周例会内容</button><button class="tab" data-view="sourceView" type="button">文件目录</button></div>
+      <section id="assemblyView" class="panel view-panel"></section><section id="auditView" class="panel view-panel" hidden></section><section id="qaView" class="panel view-panel" hidden></section><section id="meetingView" class="panel view-panel" hidden></section><section id="sourceView" class="panel view-panel" hidden></section>
+    </section>
+  </div>
+</main>
+<script src="/static/page-transition.js?v=20260810-2"></script>
+<script>
+const drop=document.getElementById('drop');
+const fileInput=document.getElementById('file');
+const selectedPanel=document.getElementById('selectedFile');
+const progress=document.getElementById('progress');
+const workspace=document.getElementById('workspace');
+const downloadButton=document.getElementById('downloadButton');
+let selectedFile=null,currentJobId='',currentResult=null,viewTimer=null;
+const VIEW_MS=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?0:220;
+
+drop.addEventListener('click',event=>{if(!event.target.closest('button'))fileInput.click();});
+drop.querySelector('button').addEventListener('click',event=>{event.stopPropagation();fileInput.click();});
+drop.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();fileInput.click();}});
+drop.addEventListener('dragover',event=>{event.preventDefault();drop.classList.add('is-dragging');});
+drop.addEventListener('dragleave',event=>{if(!drop.contains(event.relatedTarget))drop.classList.remove('is-dragging');});
+drop.addEventListener('drop',event=>{event.preventDefault();drop.classList.remove('is-dragging');choose(event.dataTransfer.files[0]);});
+fileInput.addEventListener('change',()=>{choose(fileInput.files[0]);fileInput.value='';});
+document.getElementById('removeButton').addEventListener('click',()=>choose(null));
+document.getElementById('startButton').addEventListener('click',upload);
+document.getElementById('clearButton').addEventListener('click',reset);
+downloadButton.addEventListener('click',()=>{if(currentJobId)window.location.href=`/api/weekly-report/jobs/${encodeURIComponent(currentJobId)}/export`;});
+document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>showView(tab.dataset.view,tab)));
+
+function choose(file){
+  if(file&&!file.name.toLowerCase().endsWith('.zip')){showUploadError('请选择 ZIP 文件');return;}
+  selectedFile=file||null;selectedPanel.hidden=!selectedFile;
+  if(selectedFile){document.getElementById('selectedName').textContent=selectedFile.name;document.getElementById('selectedMeta').textContent=`${formatSize(selectedFile.size)} · 文件仅在本机临时处理`;}
+}
+
+async function upload(){
+  if(!selectedFile)return;
+  currentJobId='';currentResult=null;workspace.hidden=true;drop.hidden=true;selectedPanel.hidden=true;progress.hidden=false;
+  setProgress({stage:'上传压缩包',percent:2,detail:`正在上传 ${selectedFile.name}`});
+  const body=new FormData();body.append('file',selectedFile);
+  try{
+    const response=await fetch('/api/weekly-report/import',{method:'POST',body});const data=await response.json();
+    if(!response.ok)throw new Error(data.detail||response.statusText);currentJobId=data.job_id;await poll(data.job_id);
+  }catch(error){showError(error.message||'周报整合失败');}
+  finally{progress.hidden=true;drop.hidden=false;selectedPanel.hidden=!selectedFile;}
+}
+
+async function poll(jobId){
+  while(true){await wait(500);const response=await fetch(`/api/weekly-report/jobs/${encodeURIComponent(jobId)}`);const data=await response.json();if(!response.ok)throw new Error(data.detail||response.statusText);setProgress(data.progress||{});if(data.status==='done'){render(data.source,data.result);return;}if(data.status==='error')throw new Error(data.error||'周报整合失败');}
+}
+
+function setProgress(info){
+  const percent=Math.max(0,Math.min(100,Number(info.percent||0)));document.getElementById('progressTitle').textContent=info.stage||'正在处理周报';document.getElementById('progressText').textContent=info.detail||'请稍候';document.getElementById('progressValue').textContent=`${percent}%`;document.getElementById('progressBar').style.width=`${percent}%`;
+  const active=percent<12?1:percent<88?2:percent<96?3:4;document.querySelectorAll('.progress-step').forEach(step=>{const index=Number(step.dataset.step);step.classList.toggle('is-active',index===active);step.classList.toggle('is-done',index<active||percent===100);});
+}
+
+function render(source,result){
+  currentResult=result;workspace.hidden=false;downloadButton.disabled=false;const stats=result.stats||{};
+  document.getElementById('sourceName').textContent=source||'部门项目周报.zip';document.getElementById('outputName').textContent=`输出：${result.output_stem}.pptx · 部门周例会${String(result.output_stem).replace('项目周报','')}.docx`;
+  document.getElementById('projectStat').textContent=stats.project_count||0;document.getElementById('matchedStat').textContent=stats.matched_projects||0;document.getElementById('errorStat').textContent=stats.error_count||0;document.getElementById('warningStat').textContent=stats.warning_count||0;
+  const qa=result.qa||{};const qaText=qa.status?`生成质量 ${qa.score??'—'} 分，${qa.status}`:'';const notice=document.getElementById('summaryNotice');notice.className=`notice${stats.error_count||stats.warning_count||qa.stable===false?' is-warn':''}`;notice.textContent=stats.error_count||stats.warning_count?`整合文件已生成；审核发现 ${stats.error_count||0} 个错误、${stats.warning_count||0} 个待确认项。${qaText}`:`${stats.project_count||0} 个模板项目均已对应。${qaText}`;
+  renderAssembly(result.projects||[]);renderAudit(result.issues||[]);renderQa(qa);renderMeeting(result.meeting_projects||[]);renderSources(result.sources||[]);showView('assemblyView',document.querySelector('.tab[data-view="assemblyView"]'));requestAnimationFrame(()=>workspace.scrollIntoView({behavior:'smooth',block:'start'}));
+}
+
+function renderAssembly(items){
+  tableView('assemblyView','assemblyFilter','assemblyCount',items,item=>`${item.title} ${item.reporter} ${item.status} ${item.source_files.join(' ')}`,'搜索项目、汇报人或源文件','<tr><th>状态</th><th>项目</th><th>汇报人</th><th>源文件</th><th>源页码</th><th>内容页数</th></tr>',item=>`<tr><td><span class="badge ${badgeClass(item.status)}">${esc(item.status)}</span></td><td title="${esc(item.title)}"><strong>${esc(item.title)}</strong></td><td>${esc(item.reporter)}</td><td title="${esc(item.source_files.join('、')||'—')}">${esc(item.source_files.join('、')||'—')}</td><td title="${esc(item.slides.map(slide=>`${slide.file} 第${slide.slide}页`).join('；')||'—')}">${esc(item.slides.map(slide=>slide.slide).join('、')||'—')}</td><td>${item.slides.length}</td></tr>`);
+}
+
+function renderAudit(items){
+  const target=document.getElementById('auditView');if(!items.length){target.innerHTML='<div class="empty">没有发现审核问题</div>';return;}
+  target.innerHTML=`<div class="table-filter"><label class="filter-label" for="auditFilter">筛选</label><input id="auditFilter" class="filter-input" type="search" placeholder="搜索文件、项目、位置或描述"><select id="severityFilter" class="filter-select"><option value="all">全部级别</option><option value="error">错误</option><option value="warning">待确认</option><option value="info">信息</option></select><span id="auditCount" class="filter-count"></span></div><div class="table-scroll"><table><thead><tr><th>级别</th><th>文件</th><th>页码</th><th>具体位置</th><th>项目</th><th>问题</th><th>描述</th><th>处理建议</th></tr></thead><tbody></tbody></table></div>`;
+  const apply=()=>{const query=document.getElementById('auditFilter').value.trim().toLowerCase();const severity=document.getElementById('severityFilter').value;const filtered=items.filter(item=>(severity==='all'||item.severity===severity)&&(!query||`${item.file} ${item.location} ${item.project} ${item.label} ${item.detail}`.toLowerCase().includes(query)));target.querySelector('tbody').innerHTML=filtered.map(item=>`<tr><td><span class="badge ${severityClass(item.severity)}">${severityText(item.severity)}</span></td><td title="${esc(item.file||'—')}">${esc(item.file||'—')}</td><td>${item.slide||'—'}</td><td title="${esc(item.location)}">${esc(item.location)}</td><td title="${esc(item.project||'—')}">${esc(item.project||'—')}</td><td title="${esc(item.label)}">${esc(item.label)}</td><td title="${esc(item.detail)}">${esc(item.detail)}</td><td title="${esc(item.suggestion)}">${esc(item.suggestion)}</td></tr>`).join('');document.getElementById('auditCount').textContent=`显示 ${filtered.length} / ${items.length} 条`;};
+  document.getElementById('auditFilter').addEventListener('input',apply);document.getElementById('severityFilter').addEventListener('change',apply);apply();
+}
+
+function renderQa(qa){
+  const items=qa.rounds||[];const target=document.getElementById('qaView');
+  if(!items.length){target.innerHTML='<div class="empty">尚无生成质量核验记录</div>';return;}
+  target.innerHTML=`<div class="table-filter"><span class="filter-label">最终状态</span><span class="badge ${qa.stable?'badge-success':'badge-warn'}">${esc(qa.status||'待核验')}</span><span class="filter-count">综合稳定度 ${esc(qa.score??'—')} 分</span></div><div class="table-scroll"><table><thead><tr><th>轮次</th><th>内容准确度</th><th>模板样式准确度</th><th>版面稳定度</th><th>自动修复</th><th>问题数</th><th>连续稳定</th></tr></thead><tbody>${items.map(item=>`<tr><td>第 ${item.round} 轮</td><td>${item.content_score}%</td><td>${item.style_score}%</td><td>${item.layout_score}%</td><td>${item.repairs}</td><td>${item.issues}</td><td><span class="badge ${item.stable?'badge-success':'badge-info'}">${item.stable?'已稳定':'继续核验'}</span></td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderMeeting(items){
+  tableView('meetingView','meetingFilter','meetingCount',items,item=>`${item.title} ${item.reporter} ${item.current} ${item.next} ${item.issues}`,'搜索项目或周例会内容','<tr><th>项目</th><th>汇报人</th><th>本周工作完成情况</th><th>下周计划</th><th>本周问题</th></tr>',item=>`<tr><td title="${esc(item.title)}">${esc(item.title)}</td><td>${esc(item.reporter)}</td><td title="${esc(item.current||'无')}">${esc(item.current||'无')}</td><td title="${esc(item.next||'无')}">${esc(item.next||'无')}</td><td title="${esc(item.issues||'无')}">${esc(item.issues||'无')}</td></tr>`);
+}
+
+function renderSources(items){
+  tableView('sourceView','sourceFilter','sourceCount',items,item=>`${item.path} ${item.kind} ${item.status}`,'搜索目录、文件名或状态','<tr><th>路径</th><th>类型</th><th>大小</th><th>处理状态</th></tr>',item=>`<tr><td class="path-cell" title="${esc(item.path)}">${esc(item.path)}</td><td>${kindText(item.kind)}</td><td>${formatSize(item.size)}</td><td><span class="badge ${item.kind==='ppt'?'badge-success':'badge-info'}">${esc(item.status||'已扫描')}</span></td></tr>`);
+}
+
+function tableView(viewId,inputId,countId,items,searchText,placeholder,head,rowHtml){
+  const target=document.getElementById(viewId);if(!items.length){target.innerHTML='<div class="empty">没有可展示的数据</div>';return;}target.innerHTML=`<div class="table-filter"><label class="filter-label" for="${inputId}">筛选</label><input id="${inputId}" class="filter-input" type="search" placeholder="${placeholder}"><span id="${countId}" class="filter-count"></span></div><div class="table-scroll"><table><thead>${head}</thead><tbody></tbody></table></div>`;const input=document.getElementById(inputId),body=target.querySelector('tbody'),count=document.getElementById(countId);const apply=()=>{const query=input.value.trim().toLowerCase();const filtered=items.filter(item=>!query||searchText(item).toLowerCase().includes(query));body.innerHTML=filtered.map(rowHtml).join('');count.textContent=`显示 ${filtered.length} / ${items.length} 条`;};input.addEventListener('input',apply);apply();
+}
+
+function showView(id,activeTab){const next=document.getElementById(id);if(!next)return;if(viewTimer){clearTimeout(viewTimer);viewTimer=null;}document.querySelectorAll('.view-panel.is-leaving').forEach(view=>{view.hidden=true;view.classList.remove('is-leaving','is-active-view');});document.querySelectorAll('.tab').forEach(tab=>tab.classList.toggle('is-active',tab===activeTab));const current=document.querySelector('.view-panel.is-active-view');if(current===next)return;const reveal=()=>{next.hidden=false;next.classList.remove('is-leaving','is-entering','is-active-view');requestAnimationFrame(()=>next.classList.add('is-active-view','is-entering'));};if(current&&!current.hidden){current.classList.remove('is-active-view');current.classList.add('is-leaving');viewTimer=setTimeout(()=>{current.hidden=true;current.classList.remove('is-leaving','is-entering','is-active-view');viewTimer=null;reveal();},VIEW_MS);return;}reveal();}
+function showUploadError(message){selectedFile=null;selectedPanel.hidden=true;window.alert(message);}
+function showError(message){currentJobId='';currentResult=null;downloadButton.disabled=true;workspace.hidden=false;document.getElementById('sourceName').textContent='处理失败';document.getElementById('outputName').textContent='未生成文件';const notice=document.getElementById('summaryNotice');notice.className='notice is-warn';notice.textContent=message;['projectStat','matchedStat','errorStat','warningStat'].forEach(id=>document.getElementById(id).textContent='—');document.querySelectorAll('.view-panel').forEach(view=>{view.innerHTML='';view.hidden=true;view.classList.remove('is-active-view','is-entering','is-leaving');});const first=document.getElementById('assemblyView');first.hidden=false;first.classList.add('is-active-view');first.innerHTML='<div class="empty">请检查压缩包后重新处理</div>';}
+function reset(){selectedFile=null;currentJobId='';currentResult=null;workspace.hidden=true;downloadButton.disabled=true;selectedPanel.hidden=true;document.querySelectorAll('.view-panel').forEach(view=>{view.innerHTML='';view.hidden=true;view.classList.remove('is-active-view','is-entering','is-leaving');});const first=document.getElementById('assemblyView');first.hidden=false;first.classList.add('is-active-view');}
+function badgeClass(status){return status==='通过'?'badge-success':status==='待确认'?'badge-warn':'badge-error';}
+function severityClass(value){return value==='error'?'badge-error':value==='warning'?'badge-warn':'badge-info';}
+function severityText(value){return value==='error'?'错误':value==='warning'?'待确认':'信息';}
+function kindText(kind){return({archive:'ZIP',directory:'目录',ppt:'PPTX',historical:'历史成品',ignored:'已忽略'})[kind]||kind||'文件';}
+function formatSize(value){const size=Number(value||0);if(!size)return'—';return size>=1048576?`${(size/1048576).toFixed(1)} MB`:`${Math.max(1,Math.round(size/1024))} KB`;}
+function wait(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]);}
+</script>
+</body>
+</html>

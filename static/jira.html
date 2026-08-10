@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<link rel="stylesheet" href="/static/page-transition.css?v=20260810-2">
+<title>Jira 数据处理 · 本地工具</title>
+<style data-app-style="jira">
+  :root {
+    --bg: #f6f7f9; --surface: #fff; --surface-soft: #f8f9fb; --line: #e5e7eb;
+    --line-strong: #cfd5dd; --text: #17191c; --muted: #747b86; --primary: #2563eb;
+    --green: #16845b; --yellow: #a16207; --red: #c2414b; --shadow: 0 1px 2px rgba(15,23,42,.04);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; color: var(--text); background: var(--bg); font-family: Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; }
+  button { color: inherit; }
+  .shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 42px 0 72px; }
+  .top-nav { display: flex; gap: 6px; margin-bottom: 30px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+  .top-nav a { padding: 9px 14px; border-radius: 8px; color: var(--muted); font-size: 12px; font-weight: 700; text-decoration: none; }
+  .top-nav a:hover { color: var(--text); background: var(--surface-soft); }
+  .top-nav a.is-active { color: var(--primary); background: #eef3ff; }
+  .hero { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; max-width: 760px; margin-bottom: 24px; }
+  .brand-mark { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; color: var(--primary); }
+  .brand-mark svg { width: 23px; height: 23px; }
+  .eyebrow { margin: 0 0 4px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+  h1 { margin: 0; font-size: clamp(24px, 4vw, 32px); line-height: 1.15; letter-spacing: -.02em; }
+  .hero-copy { grid-column: 2; margin: -5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+  .panel { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+  .upload-panel { padding: 10px; }
+  .drop-zone { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; min-height: 150px; padding: 28px 30px; border: 1px dashed #c9ced6; border-radius: 9px; background: #fbfcfd; cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+  .drop-zone:hover, .drop-zone:focus-visible, .drop-zone.is-dragging { border-color: #8fb0f7; background: #f7f9ff; outline: none; }
+  .upload-icon { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 9px; color: var(--primary); background: #eef3ff; }
+  .upload-icon svg { width: 29px; height: 29px; }
+  .upload-copy strong { display: block; margin-bottom: 7px; font-size: 17px; }
+  .upload-copy span { color: var(--muted); font-size: 13px; line-height: 1.65; }
+  .primary-button, .ghost-button { border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 700; }
+  .primary-button { padding: 11px 17px; color: #fff; background: var(--primary); }
+  .primary-button:hover { background: #1d4ed8; }
+  button:disabled { cursor: not-allowed; opacity: .5; }
+  .ghost-button { padding: 9px 13px; border: 1px solid var(--line-strong); color: var(--muted); background: #fff; }
+  .ghost-button:hover { color: var(--text); background: var(--surface-soft); }
+  .upload-meta { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 13px 8px 3px; color: var(--muted); font-size: 11px; }
+  .meta-dot { display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--primary); }
+  .progress-panel { margin-top: 12px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfd; }
+  .progress-head { display: flex; align-items: center; gap: 12px; }
+  .progress-head strong { display: block; font-size: 13px; }
+  .progress-head span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+  .spinner { width: 18px; height: 18px; border: 2px solid #d9e2fb; border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+  .progress-track { height: 6px; margin-top: 14px; overflow: hidden; border-radius: 99px; background: #e9edf3; }
+  .progress-bar { width: 0; height: 100%; border-radius: inherit; background: var(--primary); transition: width .25s ease; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .workspace { margin-top: 22px; }
+  .summary-panel { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 16px; padding: 24px; }
+  .summary-kicker { color: var(--muted); font-size: 12px; }
+  .summary-source { margin-top: 7px; color: var(--text-soft, #3f4650); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+  .summary-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+  .stat { min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }
+  .stat span { display: block; color: var(--muted); font-size: 10px; }
+  .stat strong { display: block; margin-top: 6px; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat.is-warn strong { color: var(--yellow); }
+  .actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 14px; }
+  .notice { margin-top: 14px; padding: 11px 14px; border-left: 2px solid var(--primary); border-radius: 7px; color: #335c99; background: #f1f5fd; font-size: 12px; line-height: 1.55; }
+  .notice.is-warn { border-color: var(--yellow); color: #875a12; background: #fff8e8; }
+  .results-head { display: flex; align-items: end; justify-content: space-between; margin: 30px 2px 12px; }
+  .results-head h2 { margin: 0; font-size: 18px; }
+  .results-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+  .tabs { display: flex; gap: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+  .tab { padding: 9px 13px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; }
+  .tab.is-active { color: var(--primary); background: #eef3ff; }
+  .view-panel { margin-top: 12px; overflow: hidden; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { padding: 11px 12px; color: var(--muted); background: var(--surface-soft); font-size: 10px; font-weight: 700; text-align: left; white-space: nowrap; }
+  td { padding: 12px; border-top: 1px solid var(--line); vertical-align: top; line-height: 1.55; }
+  .summary-table td:last-child { min-width: 430px; white-space: pre-line; }
+  .detail-summary { min-width: 300px; }
+  #detailView table { min-width: 1280px; table-layout: fixed; }
+  #detailView .detail-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px 12px;
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-soft);
+  }
+  #detailView .detail-filter-label { color: var(--muted); font-size: 11px; font-weight: 700; }
+  #detailView .detail-filter-input,
+  #detailView .detail-filter-select {
+    min-width: 128px;
+    height: 32px;
+    padding: 0 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    outline: none;
+    color: var(--text);
+    background: var(--surface);
+    font-size: 11px;
+  }
+  #detailView .detail-filter-input { width: min(280px, 100%); min-width: 220px; }
+  #detailView .detail-filter-input:focus,
+  #detailView .detail-filter-select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(207,67,45,.12); }
+  #detailView .detail-filter-count { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  #detailView .detail-table-scroll { max-height: min(540px, calc(100vh - 360px)); overflow: auto; }
+  #detailView .detail-table-scroll thead th { position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--line-strong); }
+  .table-filter {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px 12px;
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-soft);
+  }
+  .table-filter-label { color: var(--muted); font-size: 11px; font-weight: 700; }
+  .table-filter-input {
+    width: min(300px, 100%);
+    height: 32px;
+    padding: 0 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    outline: none;
+    color: var(--text);
+    background: var(--surface);
+    font-size: 11px;
+  }
+  .table-filter-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(207,67,45,.12); }
+  .table-filter-count { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .table-scroll { max-height: min(540px, calc(100vh - 360px)); overflow: auto; }
+  .table-scroll thead th { position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--line-strong); }
+  #detailView .detail-summary { min-width: 0; }
+  #detailView th,
+  #detailView td {
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  #detailView th:nth-child(1), #detailView td:nth-child(1) { width: 4%; }
+  #detailView th:nth-child(2), #detailView td:nth-child(2) { width: 9%; }
+  #detailView th:nth-child(3), #detailView td:nth-child(3) { width: 22%; }
+  #detailView th:nth-child(4), #detailView td:nth-child(4) { width: 9%; }
+  #detailView th:nth-child(5), #detailView td:nth-child(5) { width: 9%; }
+  #detailView th:nth-child(6), #detailView td:nth-child(6) { width: 10%; }
+  #detailView th:nth-child(7), #detailView td:nth-child(7) { width: 10%; }
+  #detailView th:nth-child(8), #detailView td:nth-child(8) { width: 15%; }
+  #detailView th:nth-child(9), #detailView td:nth-child(9) { width: 7%; }
+  #detailView th:nth-child(10), #detailView td:nth-child(10) { width: 5%; }
+  #detailView td > strong,
+  #detailView td > .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { display: inline-flex; padding: 4px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+  .badge-success { color: #16724f; background: #eaf7f0; }
+  .badge-info { color: #2459b3; background: #edf3ff; }
+  .badge-warn { color: #8a5708; background: #fff6df; }
+  .badge-error { color: #ad3540; background: #fff0f1; }
+  .empty { padding: 28px; color: var(--muted); text-align: center; font-size: 12px; }
+  .mapping-key { color: var(--muted); }
+
+  /* 与发票核算页面共用同一套专辑封面视觉系统。 */
+  :root {
+    --bg: #e8e4dc; --surface: #f8f6f1; --surface-soft: #efebe3; --line: #d3cec4;
+    --line-strong: #1b1b19; --text: #181816; --muted: #77736b; --primary: #cf432d;
+    --green: #436450; --yellow: #9a6a24; --red: #b9362d; --shadow: 5px 5px 0 rgba(24,24,22,.08);
+  }
+  body {
+    background-color: var(--bg);
+    background-image: linear-gradient(rgba(24,24,22,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(24,24,22,.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  body::before { content: ""; position: fixed; inset: 0 auto 0 0; width: 7px; background: var(--primary); z-index: 40; }
+  .shell { width: min(1080px, calc(100% - 48px)); padding: 54px 0 80px; }
+  .top-nav { margin-bottom: 32px; border-color: var(--text); border-radius: 0; background: var(--surface); box-shadow: var(--shadow); }
+  .top-nav a { border-radius: 0; letter-spacing: .04em; }
+  .top-nav a:hover { color: var(--text); background: #e8e3da; }
+  .top-nav a.is-active { color: #f8f6f1; background: var(--text); }
+  .hero { grid-template-columns: 70px minmax(0, 1fr) auto; gap: 18px; max-width: none; margin-bottom: 28px; padding-bottom: 24px; border-bottom: 2px solid var(--text); }
+  .brand-mark { width: 70px; height: 70px; border: 0; border-radius: 0; color: #f8f6f1; background: var(--text); }
+  .brand-mark svg { width: 29px; height: 29px; }
+  .eyebrow { margin-bottom: 7px; color: var(--primary); font-family: Consolas, "SFMono-Regular", monospace; font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
+  h1 { font-size: clamp(30px, 5vw, 46px); font-weight: 800; letter-spacing: -.055em; }
+  .hero-copy { grid-column: 2; max-width: 590px; margin: -9px 0 0; color: #393834; font-size: 13px; }
+  .album-index { grid-column: 3; grid-row: 1 / span 2; align-self: stretch; min-width: 128px; padding-left: 18px; border-left: 1px solid var(--text); text-align: right; }
+  .album-index strong { display: block; color: var(--primary); font-family: Georgia, "Times New Roman", serif; font-size: 46px; font-weight: 400; line-height: .9; }
+  .album-index span { display: block; margin-top: 13px; color: var(--muted); font-family: Consolas, "SFMono-Regular", monospace; font-size: 9px; letter-spacing: .14em; }
+  .panel { border-color: var(--text); border-radius: 2px; }
+  .upload-panel { padding: 7px; }
+  .drop-zone { min-height: 158px; border-color: #9b978f; border-radius: 0; background: #fffdf8; }
+  .drop-zone:hover, .drop-zone:focus-visible, .drop-zone.is-dragging { border-color: var(--primary); background: #fffaf3; }
+  .upload-icon { width: 64px; height: 64px; border-radius: 50%; color: #f8f6f1; background: var(--text); }
+  .upload-copy strong { font-size: 18px; letter-spacing: -.02em; }
+  .primary-button { border-radius: 0; background: var(--primary); letter-spacing: .04em; }
+  .primary-button:hover { background: #ac3423; }
+  .ghost-button { border-radius: 0; }
+  .upload-meta { border-top: 1px solid var(--line); }
+  .meta-dot { border-radius: 0; background: var(--primary); transform: rotate(45deg); }
+  .progress-panel { border-radius: 0; background: #fffdf8; }
+  .spinner { border-color: #d8d2c8; border-top-color: var(--primary); }
+  .progress-track { height: 3px; border-radius: 0; background: #ddd7cd; }
+  .progress-bar { border-radius: 0; background: var(--primary); }
+  .workspace { margin-top: 26px; }
+  .summary-panel { position: relative; color: #f7f3eb; background: var(--text); box-shadow: 7px 7px 0 var(--primary); overflow: hidden; }
+  .summary-panel::before { content: "REPORT / 周报"; position: absolute; top: 18px; right: 22px; color: rgba(255,255,255,.08); font-family: Georgia, serif; font-size: clamp(32px, 7vw, 66px); letter-spacing: -.05em; pointer-events: none; }
+  .summary-kicker { position: relative; color: #aaa69e; letter-spacing: .12em; }
+  .summary-source { position: relative; color: #f7f3eb; }
+  .summary-stats, .actions { position: relative; }
+  .stat { border-color: #4d4b46; border-radius: 0; background: #242421; }
+  .stat span { color: #aaa69e; }
+  .stat strong { color: #f7f3eb; font-family: Georgia, "Times New Roman", serif; font-weight: 400; }
+  .stat.is-warn strong { color: #d6a65a; }
+  .summary-panel .notice { position: relative; border-radius: 0; border-color: var(--primary); color: #d6d1c7; background: #2c2c29; }
+  .summary-panel .notice.is-warn { border-color: #d6a65a; color: #ead4ac; background: #332d22; }
+  .summary-panel .ghost-button { border-color: #6c6962; color: #f7f3eb; background: transparent; }
+  .summary-panel .ghost-button:hover { border-color: #f7f3eb; background: #2c2c29; }
+  .results-head { margin-top: 40px; padding-bottom: 12px; border-bottom: 2px solid var(--text); }
+  .results-head h2 { font-size: 22px; }
+  .tabs { border-color: var(--text); border-radius: 0; background: var(--surface); box-shadow: var(--shadow); }
+  .tab { border-radius: 0; letter-spacing: .03em; transition: color .18s ease, background-color .18s ease, transform .18s ease; }
+  .tab:active { transform: translateY(1px) scale(.985); }
+  .tab:hover { color: var(--text); background: #e8e3da; }
+  .tab.is-active { color: #f7f3eb; background: var(--text); }
+  .view-panel {
+    position: relative;
+    border-color: var(--text);
+    border-radius: 0;
+    box-shadow: var(--shadow);
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(.985);
+    visibility: hidden;
+    pointer-events: none;
+    transition: visibility 0s linear .34s;
+  }
+  .view-panel.is-active-view { opacity: 1; transform: translate3d(0, 0, 0) scale(1); visibility: visible; pointer-events: auto; will-change: opacity, transform; transition-delay: 0s; }
+  .view-panel.is-entering { animation: jira-tab-enter .34s cubic-bezier(.22, .61, .36, 1) both; }
+  .view-panel.is-leaving { visibility: visible; pointer-events: none; will-change: opacity, transform; animation: jira-tab-leave .24s cubic-bezier(.4, 0, .8, .6) both; transition-delay: 0s; }
+  .view-panel::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--primary); z-index: 2; }
+  th { color: #625f58; background: #e8e3da; letter-spacing: .04em; }
+  td { border-color: var(--line); background: var(--surface); }
+  tr:hover td { background: #fffaf3; }
+  .badge { border-radius: 0; letter-spacing: .03em; }
+  .badge-success { color: #355643; background: #dfe9df; }
+  .badge-info { color: #734035; background: #f0ddd5; }
+  .badge-warn { color: #755019; background: #eee1bf; }
+  .badge-error { color: #8b2d26; background: #edd8d4; }
+  @keyframes jira-tab-enter {
+    from { opacity: 0; transform: translate3d(0, 14px, 0) scale(.985); }
+    to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  }
+  @keyframes jira-tab-leave {
+    from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+    to { opacity: 0; transform: translate3d(-12px, 0, 0) scale(.995); }
+  }
+  @media (max-width: 760px) {
+    .shell { width: min(100% - 24px, 1180px); padding-top: 24px; }
+    .hero { grid-template-columns: 54px 1fr; margin-left: 4px; }
+    .brand-mark { width: 54px; height: 54px; }
+    .hero-copy { grid-column: 1 / -1; margin-top: -2px; }
+    .album-index { display: none; }
+    .drop-zone { grid-template-columns: auto 1fr; padding: 24px 20px; }
+    .drop-zone .primary-button { grid-column: 2; justify-self: start; }
+    .summary-panel { grid-template-columns: 1fr; padding: 18px; }
+    .summary-stats { grid-template-columns: repeat(2, 1fr); }
+    .top-nav { margin-bottom: 22px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tab, .view-panel { transition: none; }
+    .tab:active { transform: none; }
+    .view-panel.is-entering, .view-panel.is-leaving { animation: none; }
+  }
+</style>
+</head>
+<body class="page-transition">
+<main class="shell">
+  <nav class="top-nav" aria-label="业务模块">
+    <a href="/">发票核验</a>
+    <a class="is-active" href="/jira">Jira 数据处理</a>
+    <a href="/weekly-report">周报生成</a>
+  </nav>
+  <div id="route-content" class="route-content">
+
+  <header class="hero">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+    </div>
+    <div><p class="eyebrow">本地 Jira 数据工具</p><h1>Jira 数据处理</h1></div>
+    <p class="hero-copy">上传 Jira 导出的 Excel，按既定人员顺序完成一致性核验、状态改写、任务排序和同人合并。</p>
+    <div class="album-index" aria-hidden="true"><strong>02</strong><span>JIRA / LOCAL</span></div>
+  </header>
+
+  <section class="panel upload-panel" aria-label="上传 Jira Excel">
+    <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
+      <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
+      <div class="upload-copy"><strong>拖入 Jira 导出的 .xlsx 文件</strong><span>系统会保留任务明细；开发人员为空或不一致的记录会进入异常清单，不会被静默丢弃。</span></div>
+      <button class="primary-button" type="button">选择 Excel</button>
+    </div>
+    <div id="progress" class="progress-panel" hidden aria-live="polite"><div class="progress-head"><div class="spinner" aria-hidden="true"></div><div><strong id="progressTitle">正在处理 Jira 数据</strong><span id="progressText">等待开始</span></div></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div>
+    <div class="upload-meta"><span><i class="meta-dot"></i>支持 Jira .xlsx 导出文件</span><span><i class="meta-dot"></i>单文件最大 20MB</span><span><i class="meta-dot"></i>处理完成后可下载汇总 Excel</span></div>
+    <input id="file" type="file" accept=".xlsx,.XLSX" hidden>
+  </section>
+
+  <section id="workspace" class="workspace" hidden>
+    <div class="panel summary-panel">
+      <div><div class="summary-kicker">处理文件</div><div id="sourceName" class="summary-source">—</div><div id="summaryNotice" class="notice">—</div></div>
+      <div><div class="summary-stats"><div class="stat"><span>任务总数</span><strong id="totalStat">0</strong></div><div class="stat"><span>纳入汇总</span><strong id="includedStat">0</strong></div><div class="stat is-warn"><span>待补开发人员</span><strong id="pendingStat">0</strong></div><div class="stat"><span>人员不一致</span><strong id="mismatchStat">0</strong></div></div><div class="actions"><button id="clearButton" class="ghost-button" type="button">清空结果</button><button id="downloadButton" class="primary-button" type="button" disabled>下载处理结果</button></div></div>
+    </div>
+    <div class="results-head"><div><h2>处理结果</h2><p>按 Word 文档规则生成的人员汇总、完整明细和异常数据。</p></div></div>
+    <div class="tabs" role="tablist"><button class="tab is-active" data-view="summaryView" type="button">人员汇总</button><button class="tab" data-view="detailView" type="button">任务明细</button><button class="tab" data-view="anomalyView" type="button">异常清单</button><button class="tab" data-view="mappingView" type="button">字段映射</button></div>
+    <section id="summaryView" class="panel view-panel"></section>
+    <section id="detailView" class="panel view-panel" hidden></section>
+    <section id="anomalyView" class="panel view-panel" hidden></section>
+    <section id="mappingView" class="panel view-panel" hidden></section>
+</section>
+  </div>
+</main>
+<script src="/static/page-transition.js?v=20260810-2"></script>
+<script>
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const progress = document.getElementById('progress');
+const workspace = document.getElementById('workspace');
+const downloadButton = document.getElementById('downloadButton');
+let currentJobId = '';
+let currentResult = null;
+let detailRecords = [];
+let detailFilter = { query: '', status: 'all', included: 'all' };
+let viewTransitionTimer = null;
+const VIEW_TRANSITION_MS = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 240;
+
+drop.addEventListener('click', event => { if (!event.target.closest('.primary-button')) fileInput.click(); });
+drop.querySelector('.primary-button').addEventListener('click', event => { event.stopPropagation(); fileInput.click(); });
+drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) upload(fileInput.files[0]); });
+drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('is-dragging'); });
+drop.addEventListener('dragleave', event => { if (!drop.contains(event.relatedTarget)) drop.classList.remove('is-dragging'); });
+drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('is-dragging'); if (event.dataTransfer.files.length) upload(event.dataTransfer.files[0]); });
+document.getElementById('clearButton').addEventListener('click', reset);
+downloadButton.addEventListener('click', () => { if (currentJobId) window.location.href = `/api/jira/jobs/${encodeURIComponent(currentJobId)}/export`; });
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => showView(tab.dataset.view, tab)));
+
+async function upload(file) {
+  if (!file.name.toLowerCase().endsWith('.xlsx')) { showError('请选择 Jira 导出的 .xlsx 文件'); return; }
+  currentJobId = ''; currentResult = null; downloadButton.disabled = true;
+  document.querySelectorAll('.view-panel').forEach(view => { view.innerHTML = ''; });
+  drop.hidden = true; progress.hidden = false; workspace.hidden = true; setProgress({ percent: 2, stage: '上传文件', detail: '正在上传 Excel 文件' });
+  const body = new FormData(); body.append('file', file);
+  try {
+    const response = await fetch('/api/jira/import', { method: 'POST', body });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    currentJobId = data.job_id;
+    await poll(data.job_id);
+  } catch (error) { showError(error.message || '上传失败'); }
+  finally { fileInput.value = ''; drop.hidden = false; progress.hidden = true; }
+}
+
+async function poll(jobId) {
+  while (true) {
+    await wait(450);
+    const response = await fetch(`/api/jira/jobs/${encodeURIComponent(jobId)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    setProgress(data.progress);
+    if (data.status === 'done') { currentResult = data.result; render(data.source, data.result); return; }
+    if (data.status === 'error') throw new Error(data.error || 'Jira 数据处理失败');
+  }
+}
+
+function setProgress(progressInfo) {
+  document.getElementById('progressTitle').textContent = progressInfo.stage || '正在处理 Jira 数据';
+  document.getElementById('progressText').textContent = progressInfo.detail || '请稍候';
+  document.getElementById('progressBar').style.width = `${Number(progressInfo.percent || 0)}%`;
+}
+
+function render(source, result) {
+  workspace.hidden = false;
+  downloadButton.disabled = false;
+  const stats = result.stats || {};
+  document.getElementById('sourceName').textContent = source || result.source || 'Jira Excel';
+  document.getElementById('totalStat').textContent = stats.total_rows ?? 0;
+  document.getElementById('includedStat').textContent = stats.included_rows ?? 0;
+  document.getElementById('pendingStat').textContent = stats.pending_developer ?? 0;
+  document.getElementById('mismatchStat').textContent = stats.mismatched_developer ?? 0;
+  const pending = Number(stats.pending_developer || 0);
+  const mismatch = Number(stats.mismatched_developer || 0);
+  const notice = document.getElementById('summaryNotice');
+  notice.className = `notice${pending || mismatch ? ' is-warn' : ''}`;
+  notice.textContent = pending || mismatch ? `已按文档规则纳入 ${stats.included_rows || 0} 条一致记录；另有 ${pending} 条待补开发人员、${mismatch} 条人员不一致记录，请在异常清单核对。` : `全部 ${stats.total_rows || 0} 条任务均通过人员一致性筛选并已生成汇总。`;
+  renderSummary(result.summaries || []); renderDetails(result.records || []); renderAnomalies(result.anomalies || []); renderMapping(result.field_mapping || {});
+  showView('summaryView', document.querySelector('.tab[data-view="summaryView"]'));
+  requestAnimationFrame(() => workspace.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+}
+
+function renderSummary(items) {
+  const target = document.getElementById('summaryView');
+  if (!items.length) { target.innerHTML = '<div class="empty">没有可展示的人员汇总</div>'; return; }
+  target.innerHTML = `<div class="table-filter"><label class="table-filter-label" for="summaryFilterInput">筛选</label><input id="summaryFilterInput" class="table-filter-input" type="search" placeholder="搜索人员或任务内容"><span id="summaryFilterCount" class="table-filter-count"></span></div><div class="table-scroll"><table class="summary-table"><thead><tr><th>人员</th><th>任务数</th><th>已完成</th><th>进行中</th><th>开放</th><th>合并任务内容</th></tr></thead><tbody></tbody></table></div>`;
+  bindTableFilter('summaryFilterInput', 'summaryFilterCount', '#summaryView tbody', items, item => `${item.name || ''} ${item.merged_text || ''}`, item => `<tr><td title="${esc(item.name)}"><strong>${esc(item.name)}</strong></td><td>${item.task_count}</td><td>${item.completed_count}</td><td>${item.in_progress_count}</td><td>${item.open_count}</td><td title="${esc(item.merged_text || '')}">${item.merged_text ? esc(item.merged_text) : '<span class="mapping-key">暂无纳入汇总的任务</span>'}</td></tr>`);
+}
+
+function bindTableFilter(inputId, countId, bodySelector, items, getSearchText, renderRow) {
+  const input = document.getElementById(inputId);
+  const count = document.getElementById(countId);
+  const body = document.querySelector(bodySelector);
+  if (!input || !count || !body) return;
+  const apply = () => {
+    const query = input.value.trim().toLowerCase();
+    const filtered = items.filter(item => !query || getSearchText(item).toLowerCase().includes(query));
+    body.innerHTML = filtered.map(renderRow).join('');
+    count.textContent = `显示 ${filtered.length} / ${items.length} 条`;
+  };
+  input.addEventListener('input', apply);
+  apply();
+}
+
+function renderDetails(records) {
+  const target = document.getElementById('detailView');
+  detailRecords = records;
+  detailFilter = { query: '', status: 'all', included: 'all' };
+  if (!records.length) { target.innerHTML = '<div class="empty">没有任务明细</div>'; return; }
+  target.innerHTML = `<div class="detail-toolbar" role="search" aria-label="任务明细筛选"><label class="detail-filter-label" for="detailFilterInput">筛选</label><input id="detailFilterInput" class="detail-filter-input" type="search" placeholder="搜索关键字、概要、人员或模块"><select id="detailStatusFilter" class="detail-filter-select" aria-label="展示状态"><option value="all">全部状态</option><option value="已完成">已完成</option><option value="进行中">进行中</option><option value="开放">开放</option></select><select id="detailIncludedFilter" class="detail-filter-select" aria-label="汇总状态"><option value="all">全部汇总状态</option><option value="included">已纳入</option><option value="excluded">未纳入</option></select><span id="detailFilterCount" class="detail-filter-count"></span></div><div class="detail-table-scroll"><table><thead><tr><th>行</th><th>问题关键字</th><th>概要</th><th>原始状态</th><th>展示状态</th><th>经办人</th><th>开发人员</th><th>模块</th><th>计划完成日期</th><th>汇总</th></tr></thead><tbody></tbody></table></div>`;
+  const input = document.getElementById('detailFilterInput');
+  const statusSelect = document.getElementById('detailStatusFilter');
+  const includedSelect = document.getElementById('detailIncludedFilter');
+  const applyFilter = () => {
+    detailFilter = { query: input.value.trim().toLowerCase(), status: statusSelect.value, included: includedSelect.value };
+    renderDetailRows();
+  };
+  input.addEventListener('input', applyFilter);
+  statusSelect.addEventListener('change', applyFilter);
+  includedSelect.addEventListener('change', applyFilter);
+  renderDetailRows();
+}
+
+function renderDetailRows() {
+  const target = document.querySelector('#detailView .detail-table-scroll tbody');
+  const count = document.getElementById('detailFilterCount');
+  if (!target || !count) return;
+  const filtered = detailRecords.filter(record => {
+    const searchable = [record.issue_key, record.summary, record.status_raw, record.status, record.assignee, record.developer, record.module, record.planned_completion]
+      .map(value => String(value || '')).join(' ').toLowerCase();
+    const matchesQuery = !detailFilter.query || searchable.includes(detailFilter.query);
+    const matchesStatus = detailFilter.status === 'all' || record.status === detailFilter.status;
+    const matchesIncluded = detailFilter.included === 'all' || (detailFilter.included === 'included' ? record.included : !record.included);
+    return matchesQuery && matchesStatus && matchesIncluded;
+  });
+  target.innerHTML = filtered.map(detailRowHtml).join('');
+  count.textContent = `显示 ${filtered.length} / ${detailRecords.length} 条`;
+}
+
+function detailRowHtml(record) {
+    const summary = record.summary || '—';
+    const rawStatus = record.status_raw || '—';
+    const status = record.status || '—';
+    const assignee = record.assignee || '—';
+    const developer = record.developer || '—';
+    const module = record.module || '—';
+    const planned = record.planned_completion || '—';
+    const included = record.included ? '已纳入' : '未纳入';
+  return `<tr><td title="${record.source_row}">${record.source_row}</td><td title="${esc(record.issue_key)}"><strong>${esc(record.issue_key)}</strong></td><td class="detail-summary" title="${esc(summary)}">${esc(summary)}</td><td title="${esc(rawStatus)}">${esc(rawStatus)}</td><td title="${esc(status)}"><span class="badge ${status === '已完成' ? 'badge-success' : status === '进行中' ? 'badge-info' : 'badge-warn'}">${esc(status)}</span></td><td title="${esc(assignee)}">${esc(assignee)}</td><td title="${esc(developer)}">${esc(developer)}</td><td title="${esc(module)}">${esc(module)}</td><td title="${esc(planned)}">${esc(planned)}</td><td title="${included}"><span class="badge ${record.included ? 'badge-success' : 'badge-warn'}">${included}</span></td></tr>`;
+}
+
+function renderAnomalies(items) {
+  const target = document.getElementById('anomalyView');
+  if (!items.length) { target.innerHTML = '<div class="empty">暂无异常，所有记录均符合当前规则</div>'; return; }
+  target.innerHTML = `<div class="table-filter"><label class="table-filter-label" for="anomalyFilterInput">筛选</label><input id="anomalyFilterInput" class="table-filter-input" type="search" placeholder="搜索关键字、异常类型或说明"><span id="anomalyFilterCount" class="table-filter-count"></span></div><div class="table-scroll"><table><thead><tr><th>来源行</th><th>问题关键字</th><th>异常类型</th><th>说明</th></tr></thead><tbody></tbody></table></div>`;
+  bindTableFilter('anomalyFilterInput', 'anomalyFilterCount', '#anomalyView tbody', items, item => `${item.issue_key || ''} ${item.label || ''} ${item.detail || ''}`, item => `<tr><td>${item.row}</td><td title="${esc(item.issue_key)}">${esc(item.issue_key)}</td><td title="${esc(item.label)}"><span class="badge badge-warn">${esc(item.label)}</span></td><td title="${esc(item.detail)}">${esc(item.detail)}</td></tr>`);
+}
+
+function renderMapping(mapping) {
+  const rows = Object.entries(mapping);
+  const target = document.getElementById('mappingView');
+  if (!rows.length) { target.innerHTML = '<div class="empty">没有字段映射信息</div>'; return; }
+  target.innerHTML = `<div class="table-filter"><label class="table-filter-label" for="mappingFilterInput">筛选</label><input id="mappingFilterInput" class="table-filter-input" type="search" placeholder="搜索标准字段、表头或列"><span id="mappingFilterCount" class="table-filter-count"></span></div><div class="table-scroll"><table><thead><tr><th>标准字段</th><th>原始表头</th><th>列</th><th>识别结果</th></tr></thead><tbody></tbody></table></div>`;
+  bindTableFilter('mappingFilterInput', 'mappingFilterCount', '#mappingView tbody', rows, ([key, value]) => `${key} ${value.header || ''} ${value.column || ''} ${value.found ? '已识别' : '未识别'}`, ([key, value]) => `<tr><td title="${esc(key)}">${esc(key)}</td><td title="${esc(value.header || '—')}">${esc(value.header || '—')}</td><td title="${esc(value.column || '—')}">${esc(value.column || '—')}</td><td title="${value.found ? '已识别' : '未识别'}"><span class="badge ${value.found ? 'badge-success' : 'badge-warn'}">${value.found ? '已识别' : '未识别'}</span></td></tr>`);
+}
+
+function showView(id, activeTab) {
+  const next = document.getElementById(id);
+  if (!next) return;
+  if (viewTransitionTimer) { clearTimeout(viewTransitionTimer); viewTransitionTimer = null; }
+  document.querySelectorAll('.view-panel.is-leaving').forEach(view => {
+    view.hidden = true;
+    view.classList.remove('is-leaving', 'is-active-view');
+  });
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('is-active', tab === activeTab));
+  const current = document.querySelector('.view-panel.is-active-view');
+  if (current === next) return;
+  const reveal = () => {
+    next.hidden = false;
+    next.classList.remove('is-leaving', 'is-entering', 'is-active-view');
+    requestAnimationFrame(() => next.classList.add('is-active-view', 'is-entering'));
+  };
+  if (current && !current.hidden) {
+    current.classList.remove('is-active-view');
+    current.classList.add('is-leaving');
+    viewTransitionTimer = setTimeout(() => {
+      current.hidden = true;
+      current.classList.remove('is-leaving', 'is-entering', 'is-active-view');
+      viewTransitionTimer = null;
+      reveal();
+    }, VIEW_TRANSITION_MS);
+    return;
+  }
+  reveal();
+}
+
+function showError(message) { currentJobId = ''; currentResult = null; downloadButton.disabled = true; workspace.hidden = false; document.getElementById('sourceName').textContent = '处理失败'; document.getElementById('summaryNotice').className = 'notice is-warn'; document.getElementById('summaryNotice').textContent = message; document.getElementById('totalStat').textContent = '—'; document.getElementById('includedStat').textContent = '—'; document.getElementById('pendingStat').textContent = '—'; document.getElementById('mismatchStat').textContent = '—'; }
+function reset() {
+  currentJobId = ''; currentResult = null; downloadButton.disabled = true; workspace.hidden = true;
+  if (viewTransitionTimer) { clearTimeout(viewTransitionTimer); viewTransitionTimer = null; }
+  document.querySelectorAll('.view-panel').forEach(view => { view.hidden = true; view.classList.remove('is-active-view', 'is-entering', 'is-leaving'); view.innerHTML = ''; });
+  const summary = document.getElementById('summaryView');
+  summary.hidden = false; summary.classList.add('is-active-view');
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('is-active', tab.dataset.view === 'summaryView'));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function esc(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
+</script>
+</body>
+</html>
