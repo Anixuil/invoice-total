@@ -1,0 +1,7 @@
+interface:
+  display_name: "表单组件开发"
+  short_description: "扩展可视化表单组件的配置、渲染与代码生成流程"
+  default_prompt: "使用 $form-component-development 开发或修改一个可视化表单组件，覆盖配置、设计器、预览、校验和代码生成链路。"
+
+policy:
+  allow_implicit_invocation: true

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light">
-<link rel="stylesheet" href="/static/page-transition.css?v=20260810-2">
+<link rel="stylesheet" href="/static/page-transition.css?v=20260811-3">
 <title>发票合计 · 本地核算工具</title>
 <style data-app-style="invoice">
   :root {
@@ -42,6 +42,17 @@
   button, input { font: inherit; }
   button { color: inherit; }
   [hidden] { display: none !important; }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 
   .shell {
     width: min(1120px, calc(100% - 40px));
@@ -175,6 +186,23 @@
     background: var(--primary);
   }
   .select-button:hover { background: #1d4ed8; }
+  .select-actions {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 8px;
+  }
+  .folder-button {
+    padding: 10px 16px;
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    color: var(--text-soft);
+    background: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .folder-button:hover { border-color: var(--primary); color: var(--primary); }
   .upload-meta {
     display: flex;
     flex-wrap: wrap;
@@ -288,6 +316,39 @@
     font-size: 12px;
   }
   .ghost-button:hover { border-color: #aeb6c2; background: #f8f9fb; }
+  .uppercase-total {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    padding: 16px 0 0;
+    border-top: 1px solid var(--line);
+  }
+  .uppercase-label {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .uppercase-amount {
+    min-width: 0;
+    font-family: "STSong", "SimSun", serif;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+  .copy-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-width: 112px;
+  }
+  .copy-button svg { width: 15px; height: 15px; }
+  .copy-button:disabled { cursor: not-allowed; opacity: .5; }
+  .copy-button.is-copied { border-color: var(--green); color: var(--green); }
 
   .source-tree {
     margin-top: 14px;
@@ -728,6 +789,8 @@
     letter-spacing: .04em;
   }
   .select-button:hover { background: #ac3423; }
+  .folder-button { border-radius: 0; border-color: var(--text); }
+  .folder-button:hover { border-color: var(--primary); color: var(--primary); background: #fffaf3; }
   .upload-meta { border-top: 1px solid var(--line); }
   .meta-dot { border-radius: 0; background: var(--primary); transform: rotate(45deg); }
   .progress-panel { border-radius: 0; background: var(--surface-solid); }
@@ -762,6 +825,10 @@
   .summary-stat strong { color: #f7f3eb; font-family: Georgia, serif; font-weight: 400; }
   .ghost-button { position: relative; border-color: #6c6962; border-radius: 0; color: #f7f3eb; background: transparent; }
   .ghost-button:hover { border-color: #f7f3eb; background: #2c2c29; }
+  .uppercase-total { position: relative; border-color: #4d4b46; }
+  .uppercase-label { color: #aaa69e; }
+  .uppercase-amount { color: #f7f3eb; }
+  .copy-button.is-copied { border-color: #82b89b; color: #a9d2ba; }
 
   .results-head { margin-top: 40px; padding-bottom: 12px; border-bottom: 2px solid var(--text); }
   .results-head h2 { font-size: 22px; }
@@ -807,9 +874,13 @@
     .hero-copy { grid-column: 1 / -1; margin-top: -2px; }
     .album-index { display: none; }
     .drop-zone { grid-template-columns: auto 1fr; padding: 24px 20px; }
-    .select-button { grid-column: 1 / -1; width: 100%; }
+    .select-actions { grid-column: 1 / -1; width: 100%; }
+    .select-actions button { flex: 1; }
     .summary-panel { grid-template-columns: 1fr; padding: 24px; }
     .summary-actions { justify-content: flex-start; }
+    .uppercase-total { grid-template-columns: 1fr; gap: 8px; }
+    .uppercase-amount { font-size: 16px; }
+    .copy-button { width: 100%; margin-top: 4px; }
     .result-top { flex-direction: column; }
     .file-total { margin-left: 43px; text-align: left; }
     .check-grid { grid-template-columns: 1fr; }
@@ -850,7 +921,7 @@
   </header>
 
   <section class="upload-panel" aria-label="上传发票">
-    <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
+    <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file folder">
       <div class="upload-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/>
@@ -858,10 +929,13 @@
         </svg>
       </div>
       <div class="upload-copy">
-        <strong>拖入 PDF 或 ZIP，开始核算</strong>
-        <span>ZIP 内可包含多级目录，系统会递归读取其中的 PDF，图片型发票会自动识别二维码金额。</span>
+        <strong>拖入 PDF、ZIP 或直接选择目录</strong>
+        <span>选择目录时会递归扫描全部子目录，仅上传其中的 PDF 发票；图片型发票会自动识别二维码金额。</span>
       </div>
-      <button class="select-button" type="button">选择文件</button>
+      <div class="select-actions">
+        <button class="select-button" type="button">选择文件</button>
+        <button class="folder-button" type="button">选择目录</button>
+      </div>
     </div>
     <div id="progress" class="progress-panel" hidden aria-live="polite">
       <div class="progress-head">
@@ -879,6 +953,7 @@
       <span class="meta-chip"><i class="meta-dot"></i>临时文件自动删除</span>
     </div>
     <input type="file" id="file" multiple accept=".pdf,.PDF,.zip,.ZIP" hidden>
+    <input type="file" id="folder" webkitdirectory directory multiple accept=".pdf,.PDF,application/pdf" hidden>
   </section>
 
   <section id="workspace" class="workspace" hidden>
@@ -898,6 +973,17 @@
           <button class="ghost-button" id="clearResults" type="button">清空结果</button>
           <button class="ghost-button" id="addFiles" type="button">核算其他文件</button>
         </div>
+      </div>
+      <div class="uppercase-total" aria-label="价税合计大写金额">
+        <span class="uppercase-label">价税合计（大写）</span>
+        <strong class="uppercase-amount" id="uppercaseAmount">人民币零元整</strong>
+        <button class="ghost-button copy-button" id="copyUppercase" type="button" aria-describedby="copyStatus">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="1"/><path d="M15 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4"/>
+          </svg>
+          <span>复制大写金额</span>
+        </button>
+        <span id="copyStatus" class="sr-only" aria-live="polite"></span>
       </div>
     </div>
 
@@ -940,10 +1026,11 @@
   </div>
 </main>
 
-<script src="/static/page-transition.js?v=20260810-2"></script>
+<script src="/static/page-transition.js?v=20260811-3"></script>
 <script>
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
+const folderInput = document.getElementById('folder');
 const progress = document.getElementById('progress');
 const workspace = document.getElementById('workspace');
 const sourceTree = document.getElementById('sourceTree');
@@ -960,13 +1047,20 @@ const viewerImage = document.getElementById('viewerImage');
 const viewerTitle = document.getElementById('viewerTitle');
 const viewerOpen = document.getElementById('viewerOpen');
 const viewerClose = document.getElementById('viewerClose');
+const uppercaseAmount = document.getElementById('uppercaseAmount');
+const copyUppercase = document.getElementById('copyUppercase');
+const copyStatus = document.getElementById('copyStatus');
 
 drop.addEventListener('click', event => {
-  if (!event.target.closest('.select-button')) fileInput.click();
+  if (!event.target.closest('button')) fileInput.click();
 });
 drop.querySelector('.select-button').addEventListener('click', event => {
   event.stopPropagation();
   fileInput.click();
+});
+drop.querySelector('.folder-button').addEventListener('click', event => {
+  event.stopPropagation();
+  folderInput.click();
 });
 drop.addEventListener('keydown', event => {
   if (event.key === 'Enter' || event.key === ' ') {
@@ -976,6 +1070,19 @@ drop.addEventListener('keydown', event => {
 });
 fileInput.addEventListener('change', () => {
   if (fileInput.files.length) upload(fileInput.files);
+});
+folderInput.addEventListener('change', () => {
+  const pdfFiles = Array.from(folderInput.files).filter(file => file.name.toLowerCase().endsWith('.pdf'));
+  folderInput.value = '';
+  if (!pdfFiles.length) {
+    renderUploadError(new Error('所选目录及其子目录中没有 PDF 发票文件'));
+    return;
+  }
+  if (pdfFiles.length > 50) {
+    renderUploadError(new Error(`目录中包含 ${pdfFiles.length} 个 PDF，单次最多处理 50 个`));
+    return;
+  }
+  upload(pdfFiles, true);
 });
 drop.addEventListener('dragover', event => {
   event.preventDefault();
@@ -992,6 +1099,7 @@ drop.addEventListener('drop', event => {
 
 document.getElementById('addFiles').addEventListener('click', () => fileInput.click());
 document.getElementById('clearResults').addEventListener('click', resetResults);
+copyUppercase.addEventListener('click', copyUppercaseAmount);
 list.addEventListener('click', event => {
   const button = event.target.closest('.preview-open');
   if (!button) return;
@@ -1006,10 +1114,13 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && viewer.classList.contains('is-open')) closeViewer();
 });
 
-async function upload(files) {
+async function upload(files, preserveRelativePath = false) {
   setLoading(true, files.length);
   const formData = new FormData();
-  for (const file of files) formData.append('files', file);
+  for (const file of files) {
+    const uploadName = preserveRelativePath && file.webkitRelativePath ? file.webkitRelativePath : file.name;
+    formData.append('files', file, uploadName);
+  }
   try {
     const response = await fetch('/api/upload', { method: 'POST', body: formData });
     const data = await response.json();
@@ -1022,6 +1133,7 @@ async function upload(files) {
   } finally {
     setLoading(false);
     fileInput.value = '';
+    folderInput.value = '';
   }
 }
 
@@ -1045,6 +1157,7 @@ function render(data) {
   const overallConfidence = aggregateConfidence(data.results);
 
   animateMoney(document.getElementById('grandAmount'), validTotal ? data.grand_total : null);
+  updateUppercaseTotal(validTotal ? data.grand_total : null);
   document.getElementById('fileStat').textContent = `${data.ok_count}/${data.files}`;
   document.getElementById('invoiceStat').textContent = invoiceCount;
   document.getElementById('imageStat').textContent = imageCount;
@@ -1336,6 +1449,7 @@ function renderUploadError(error) {
   sourceTree.innerHTML = '';
   previewProgress.hidden = true;
   document.getElementById('grandAmount').textContent = '—';
+  updateUppercaseTotal(null);
   document.getElementById('fileStat').textContent = '0';
   document.getElementById('invoiceStat').textContent = '0';
   document.getElementById('imageStat').textContent = '0';
@@ -1353,6 +1467,7 @@ function resetResults() {
   sourceTree.innerHTML = '';
   previewProgress.hidden = true;
   list.innerHTML = '';
+  updateUppercaseTotal(null);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1379,6 +1494,105 @@ function fmt(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function updateUppercaseTotal(value) {
+  const hasAmount = value !== null && value !== undefined && Number.isFinite(Number(value));
+  uppercaseAmount.textContent = hasAmount ? moneyToChineseUppercase(value) : '—';
+  copyUppercase.disabled = !hasAmount;
+  copyUppercase.classList.remove('is-copied');
+  copyUppercase.querySelector('span').textContent = '复制大写金额';
+  copyStatus.textContent = '';
+}
+
+function moneyToChineseUppercase(value) {
+  const amount = Number(value);
+  const maxAmount = 9999999999999.99;
+  if (!Number.isFinite(amount) || Math.abs(amount) > maxAmount) return '金额超出转换范围';
+
+  const digits = '零壹贰叁肆伍陆柒捌玖';
+  const groupUnits = ['', '万', '亿', '万亿'];
+  const totalCents = Math.round(Math.abs(amount) * 100);
+  const integer = Math.floor(totalCents / 100);
+  const jiao = Math.floor(totalCents / 10) % 10;
+  const fen = totalCents % 10;
+
+  function convertGroup(group) {
+    const units = ['仟', '佰', '拾', ''];
+    const divisors = [1000, 100, 10, 1];
+    let text = '';
+    let needsZero = false;
+    divisors.forEach((divisor, index) => {
+      const digit = Math.floor(group / divisor) % 10;
+      if (digit) {
+        if (needsZero && text) text += digits[0];
+        text += digits[digit] + units[index];
+        needsZero = false;
+      } else if (text) {
+        needsZero = true;
+      }
+    });
+    return text;
+  }
+
+  function convertInteger(number) {
+    if (!number) return digits[0];
+    const groups = [];
+    while (number > 0) {
+      groups.push(number % 10000);
+      number = Math.floor(number / 10000);
+    }
+
+    let text = '';
+    let skippedGroup = false;
+    for (let index = groups.length - 1; index >= 0; index -= 1) {
+      const group = groups[index];
+      if (!group) {
+        if (text) skippedGroup = true;
+        continue;
+      }
+      if (text && (skippedGroup || group < 1000) && !text.endsWith(digits[0])) text += digits[0];
+      text += convertGroup(group) + groupUnits[index];
+      skippedGroup = false;
+    }
+    return text;
+  }
+
+  let result = `人民币${amount < 0 ? '负' : ''}${convertInteger(integer)}元`;
+  if (!jiao && !fen) return result + '整';
+  if (jiao) result += digits[jiao] + '角';
+  if (fen) result += (!jiao ? digits[0] : '') + digits[fen] + '分';
+  return result;
+}
+
+async function copyUppercaseAmount() {
+  const text = uppercaseAmount.textContent;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      if (!copied) throw new Error('copy failed');
+    }
+    copyUppercase.classList.add('is-copied');
+    copyUppercase.querySelector('span').textContent = '已复制';
+    copyStatus.textContent = '大写金额已复制到剪贴板';
+    setTimeout(() => {
+      copyUppercase.classList.remove('is-copied');
+      copyUppercase.querySelector('span').textContent = '复制大写金额';
+    }, 1800);
+  } catch (error) {
+    copyStatus.textContent = '复制失败，请手动选择大写金额';
+    copyUppercase.querySelector('span').textContent = '复制失败';
+  }
 }
 
 function esc(value) {

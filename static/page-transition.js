@@ -20,7 +20,7 @@
   const wait = ms => new Promise(resolve => window.setTimeout(resolve, ms));
 
   function bindNavigation(root = document) {
-    root.querySelectorAll('.top-nav a').forEach(link => {
+    root.querySelectorAll('.top-nav a, .mode-switch a').forEach(link => {
       if (link.dataset.routeBound === 'true') return;
       link.dataset.routeBound = 'true';
       link.addEventListener('click', event => {
@@ -46,6 +46,21 @@
     });
   }
 
+  function syncModeSwitch(path, markup) {
+    const current = document.querySelector('.mode-switch');
+    const isJira = new URL(path, window.location.href).pathname === '/jira';
+    if (!isJira) {
+      current?.remove();
+      return;
+    }
+    if (current || !markup) return;
+    const shell = document.querySelector('main.shell');
+    const routeContent = document.querySelector('#route-content');
+    if (!shell || !routeContent) return;
+    const fragment = document.createRange().createContextualFragment(markup);
+    shell.insertBefore(fragment, routeContent);
+  }
+
   async function navigate(path, pushHistory) {
     if (navigationPending || path === currentRoutePath) return;
     navigationPending = true;
@@ -57,6 +72,7 @@
     const previousRoutePath = currentRoutePath;
     const previousStyle = document.querySelector('style[data-app-style]');
     const previousTitle = document.title;
+    const previousModeSwitchHTML = document.querySelector('.mode-switch')?.outerHTML || '';
     const cachedRoute = routeCache.get(path);
     let nextShell = null;
     let replaced = false;
@@ -66,8 +82,9 @@
       routeCache.set(previousRoutePath, {
         content: currentContent,
         styleName: previousStyle?.dataset.appStyle || '',
-        styleText: previousStyle?.textContent || '',
-        title: previousTitle,
+      styleText: previousStyle?.textContent || '',
+      title: previousTitle,
+      modeSwitchHTML: document.querySelector('.mode-switch')?.outerHTML || '',
       });
       document.body.style.overflow = '';
       document.querySelectorAll('.viewer.is-open').forEach(viewer => {
@@ -85,6 +102,7 @@
         nextStyleName = cachedRoute.styleName;
         nextStyleText = cachedRoute.styleText;
         document.title = cachedRoute.title;
+        syncModeSwitch(path, cachedRoute.modeSwitchHTML);
       } else {
         if (!response.ok) throw new Error(`页面加载失败 (${response.status})`);
         const html = await response.text();
@@ -95,6 +113,7 @@
         nextStyleName = nextStyle.dataset.appStyle;
         nextStyleText = nextStyle.textContent;
         document.title = loadedDocument.title;
+        syncModeSwitch(path, loadedDocument.querySelector('.mode-switch')?.outerHTML || '');
       }
 
       document.querySelectorAll('style[data-app-style]').forEach(style => style.remove());
@@ -120,6 +139,7 @@
         styleName: nextStyleName,
         styleText: nextStyleText,
         title: document.title,
+        modeSwitchHTML: document.querySelector('.mode-switch')?.outerHTML || '',
       });
       window.requestAnimationFrame(() => nextShell.classList.add('route-ready'));
       window.setTimeout(() => {
@@ -134,6 +154,7 @@
       if (nextStyleElement?.isConnected) nextStyleElement.remove();
       if (previousStyle && !previousStyle.isConnected) document.head.appendChild(previousStyle);
       document.title = previousTitle;
+      syncModeSwitch(previousRoutePath, previousModeSwitchHTML);
       if (!pushHistory && routeKey(window.location.href) !== previousRoutePath) {
         window.history.replaceState({}, '', previousRoutePath);
       }
@@ -161,6 +182,7 @@
       styleName: initialStyle.dataset.appStyle || '',
       styleText: initialStyle.textContent || '',
       title: document.title,
+      modeSwitchHTML: document.querySelector('.mode-switch')?.outerHTML || '',
     });
   }
   window.addEventListener('popstate', () => navigate(routeKey(window.location.href), false));

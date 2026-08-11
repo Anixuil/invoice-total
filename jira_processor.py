@@ -193,9 +193,28 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
             summary = _text(get("summary"))
             assignee = _text(get("assignee"))
             developer = _text(get("developer"))
+            reporter = _text(get("reporter"))
+            if developer:
+                summary_person = developer
+                summary_source = "开发人员"
+                summary_note = ""
+            elif assignee:
+                summary_person = assignee
+                summary_source = "经办人"
+                summary_note = "开发人员为空，按经办人汇总"
+            elif reporter:
+                summary_person = reporter
+                summary_source = "报告人"
+                summary_note = "开发人员和经办人均为空，按报告人汇总"
+            else:
+                summary_person = "未分配"
+                summary_source = "未分配"
+                summary_note = "开发人员、经办人和报告人均为空，归入未分配"
             modules = [_text(values[index]) for index in module_indexes if index < len(values) and _text(values[index])]
             consistency = "待补开发人员" if not developer else "一致" if assignee == developer else "人员不一致"
             display_status = STATUS_MAP.get(status_raw, status_raw or "未填写")
+            # 汇总归属依次使用开发人员、经办人、报告人；均为空时归入未分配。
+            # 人员字段不一致只做异常提示，不影响按上述优先级归入汇总。
             record = {
                 "source_row": row_number,
                 "issue_key": issue_key,
@@ -206,8 +225,11 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
                 "created_at": _date_text(get("created_at")),
                 "summary": summary,
                 "assignee": assignee or "未分配",
-                "reporter": _text(get("reporter")),
+                "reporter": reporter,
                 "developer": developer,
+                "summary_person": summary_person,
+                "summary_source": summary_source,
+                "summary_note": summary_note,
                 "modules": modules,
                 "module": "、".join(dict.fromkeys(modules)),
                 "delivery_date": _date_text(get("delivery_date")),
@@ -215,7 +237,7 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
                 "issue_type": _text(get("issue_type")),
                 "planned_completion": _date_text(get("planned_completion")),
                 "consistency": consistency,
-                "included": consistency == "一致",
+                "included": True,
                 "summary_text": f"{summary}【{display_status}】",
             }
             records.append(record)
@@ -224,7 +246,7 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
         key_counts = Counter(record["issue_key"] for record in records)
         roster_order = {name: index + 1 for index, name in enumerate(DEFAULT_ROSTER)}
         for record in records:
-            record["sort_order"] = roster_order.get(record["assignee"], 9999)
+            record["sort_order"] = roster_order.get(record["summary_person"], 9999)
             record["duplicate"] = key_counts[record["issue_key"]] > 1
 
         def sort_key(record: dict[str, Any]) -> tuple[Any, ...]:
@@ -239,7 +261,7 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
         included = [record for record in records if record["included"]]
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for record in included:
-            grouped[record["assignee"]].append(record)
+            grouped[record["summary_person"]].append(record)
 
         summaries = []
         summary_names = DEFAULT_ROSTER + sorted(name for name in grouped if name not in roster_order)
@@ -259,9 +281,9 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
         anomalies = []
         for record in records:
             if record["consistency"] == "待补开发人员":
-                anomalies.append({"row": record["source_row"], "issue_key": record["issue_key"], "type": "developer_missing", "label": "待补开发人员", "detail": "开发人员为空，未纳入按人员一致性汇总"})
+                anomalies.append({"row": record["source_row"], "issue_key": record["issue_key"], "type": "developer_missing", "label": "待补开发人员", "detail": record["summary_note"]})
             elif record["consistency"] == "人员不一致":
-                anomalies.append({"row": record["source_row"], "issue_key": record["issue_key"], "type": "developer_mismatch", "label": "人员不一致", "detail": f"经办人：{record['assignee']}；开发人员：{record['developer']}"})
+                anomalies.append({"row": record["source_row"], "issue_key": record["issue_key"], "type": "developer_mismatch", "label": "人员不一致", "detail": f"经办人：{record['assignee']}；开发人员：{record['developer']}；已按开发人员纳入人员汇总"})
             if record["status_raw"] not in KNOWN_STATUSES:
                 anomalies.append({"row": record["source_row"], "issue_key": record["issue_key"], "type": "unknown_status", "label": "未知状态", "detail": record["status_raw"] or "状态为空"})
             if not record["planned_completion"]:
@@ -270,7 +292,7 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
                 anomalies.append({"row": record["source_row"], "issue_key": record["issue_key"], "type": "duplicate_issue", "label": "问题关键字重复", "detail": "建议回到 Jira 导出数据确认是否重复"})
 
         status_counts = Counter(record["status_raw"] for record in records)
-        _notify(progress_callback, "核验并分组", 78, f"一致性汇总 {len(included)} 条，异常 {len(anomalies)} 条")
+        _notify(progress_callback, "核验并分组", 78, f"按人员归属汇总 {len(included)} 条，异常 {len(anomalies)} 条")
         result = {
             "ok": True,
             "source": Path(path).name,
@@ -281,7 +303,7 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
                 "included_rows": len(included),
                 "pending_developer": sum(record["consistency"] == "待补开发人员" for record in records),
                 "mismatched_developer": sum(record["consistency"] == "人员不一致" for record in records),
-                "unique_assignees": len({record["assignee"] for record in records}),
+                "unique_assignees": len({record["summary_person"] for record in records}),
                 "duplicate_keys": sum(count > 1 for count in key_counts.values()),
                 "missing_planned_completion": sum(not record["planned_completion"] for record in records),
                 "status_counts": dict(status_counts),
@@ -293,6 +315,153 @@ def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback 
             "raw_rows": raw_rows,
         }
         _notify(progress_callback, "生成结果", 100, "Jira 数据处理完成")
+        return result
+    finally:
+        workbook.close()
+
+
+def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCallback = None) -> dict[str, Any]:
+    """按开发人员、经办人、报告人的优先级生成每日 Jira 汇总。"""
+    _notify(progress_callback, "读取工作表", 8, "正在打开 Excel 工作簿")
+    workbook = load_workbook(filename=path, read_only=True, data_only=True)
+    try:
+        worksheet = next((sheet for sheet in workbook.worksheets if sheet.max_row), None)
+        if worksheet is None:
+            raise ValueError("工作簿中没有可读取的数据")
+
+        rows = worksheet.iter_rows()
+        header_cells = next(rows, None)
+        if not header_cells:
+            raise ValueError("工作表为空")
+        populated_header_indexes = [index for index, cell in enumerate(header_cells) if _text(cell.value)]
+        if not populated_header_indexes:
+            raise ValueError("首行没有可识别的字段名")
+        header_cells = header_cells[: populated_header_indexes[-1] + 1]
+        headers = [_text(cell.value) or f"列{index + 1}" for index, cell in enumerate(header_cells)]
+        seen: Counter[str] = Counter()
+        unique_headers = []
+        for header in headers:
+            seen[header] += 1
+            unique_headers.append(header if seen[header] == 1 else f"{header}_{seen[header]}")
+
+        indexes = {field: _find_index(headers, aliases) for field, aliases in FIELD_ALIASES.items()}
+        missing = [field for field in ("status", "summary") if indexes[field] is None]
+        if missing:
+            labels = {"status": "状态", "summary": "概要"}
+            raise ValueError("缺少每日处理必需字段：" + "、".join(labels[field] for field in missing))
+        if all(indexes[field] is None for field in ("developer", "assignee", "reporter")):
+            raise ValueError("缺少每日处理人员字段：开发人员、经办人或报告人")
+
+        mapping = _field_mapping(unique_headers, indexes, _module_indexes(headers))
+        _notify(progress_callback, "识别字段", 18, "已识别状态、概要和人员归属字段")
+
+        records: list[dict[str, Any]] = []
+        for row_number, cells in enumerate(rows, start=2):
+            values = [cell.value for cell in cells]
+            if not any(value not in (None, "") for value in values):
+                continue
+            get = lambda field: values[indexes[field]] if indexes[field] is not None and indexes[field] < len(values) else None
+            assignee = _text(get("assignee"))
+            developer = _text(get("developer"))
+            reporter = _text(get("reporter"))
+            status_raw = _text(get("status"))
+            status = STATUS_MAP.get(status_raw, status_raw or "未填写")
+            summary = _text(get("summary"))
+            if developer:
+                summary_person = developer
+                summary_source = "开发人员"
+                consistency = "相同" if not assignee or assignee == developer else "不同"
+                summary_note = "" if consistency == "相同" else "经办人与开发人员不一致，按开发人员汇总"
+            elif assignee:
+                summary_person = assignee
+                summary_source = "经办人"
+                consistency = "缺少开发人员"
+                summary_note = "开发人员为空，按经办人汇总"
+            elif reporter:
+                summary_person = reporter
+                summary_source = "报告人"
+                consistency = "缺少开发人员和经办人"
+                summary_note = "开发人员和经办人均为空，按报告人汇总"
+            else:
+                summary_person = "未分配"
+                summary_source = "未分配"
+                consistency = "人员缺失"
+                summary_note = "开发人员、经办人和报告人均为空，未纳入每日汇总"
+            included = bool(developer or assignee or reporter)
+            records.append({
+                "source_row": row_number,
+                "issue_key": _text(get("issue_key")) or f"第{row_number}行",
+                "status_raw": status_raw,
+                "status": status,
+                "summary": summary,
+                "assignee": assignee,
+                "reporter": reporter,
+                "developer": developer,
+                "summary_person": summary_person,
+                "summary_source": summary_source,
+                "summary_note": summary_note,
+                "module": "",
+                "planned_completion": _date_text(get("planned_completion")),
+                "consistency": consistency,
+                "included": included,
+                "summary_text": f"{summary}【{status}】",
+            })
+
+        _notify(progress_callback, "确定人员归属", 48, f"已读取 {len(records)} 条任务")
+        roster_order = {name: index + 1 for index, name in enumerate(DEFAULT_ROSTER)}
+        records.sort(key=lambda record: (
+            0 if record["included"] else 1,
+            roster_order.get(record["summary_person"], len(DEFAULT_ROSTER) + 1),
+            record["source_row"],
+        ))
+        included_records = [record for record in records if record["included"]]
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for record in included_records:
+            grouped[record["summary_person"]].append(record)
+
+        summary_names = DEFAULT_ROSTER + sorted(name for name in grouped if name not in roster_order)
+        summaries = []
+        for name in summary_names:
+            items = grouped.get(name, [])
+            status_count = Counter(item["status"] for item in items)
+            summaries.append({
+                "name": name,
+                "task_count": len(items),
+                "completed_count": status_count.get("已完成", 0),
+                "in_progress_count": status_count.get("进行中", 0),
+                "open_count": status_count.get("开放", 0),
+                "merged_text": ";\n".join(item["summary_text"] for item in items),
+                "items": [item["issue_key"] for item in items],
+            })
+
+        anomalies = [{
+            "row": record["source_row"],
+            "issue_key": record["issue_key"],
+            "type": "daily_person_fallback" if record["included"] else "daily_person_missing",
+            "label": record["consistency"],
+            "detail": record["summary_note"],
+        } for record in records if record["summary_note"]]
+        _notify(progress_callback, "排序并合并", 82, f"已按人员优先级纳入 {len(included_records)} 条记录，按 {len(summaries)} 人生成汇总")
+        result = {
+            "ok": True,
+            "mode": "daily",
+            "source": Path(path).name,
+            "sheet": worksheet.title,
+            "field_mapping": mapping,
+            "stats": {
+                "total_rows": len(records),
+                "included_rows": len(included_records),
+                "excluded_rows": len(records) - len(included_records),
+                "pending_developer": sum(not record["developer"] for record in records),
+                "mismatched_developer": sum(record["consistency"] == "不同" for record in records),
+                "unique_assignees": len(grouped),
+                "status_counts": dict(Counter(record["status_raw"] for record in records)),
+            },
+            "summaries": summaries,
+            "records": records,
+            "anomalies": anomalies,
+        }
+        _notify(progress_callback, "生成结果", 100, "每日 Jira 数据处理完成")
         return result
     finally:
         workbook.close()
@@ -324,21 +493,21 @@ def export_jira_xlsx(result: dict[str, Any], target: str | Path) -> None:
             for cell in row:
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
         if title == "人员汇总":
-            sheet.column_dimensions["F"].width = 70
+            sheet.column_dimensions["B"].width = 70
             for row_index, row in enumerate(sheet.iter_rows(min_row=2), start=2):
-                row[5].alignment = Alignment(vertical="top", wrap_text=True)
-                line_count = max(1, str(row[5].value or "").count("\n") + 1)
+                row[1].alignment = Alignment(vertical="top", wrap_text=True)
+                line_count = max(1, str(row[1].value or "").count("\n") + 1)
                 sheet.row_dimensions[row_index].height = min(18 * line_count, 120)
 
     add_sheet(
         "人员汇总",
-        ["人员", "任务数", "已完成", "进行中", "开放", "合并任务内容"],
-        [[item["name"], item["task_count"], item["completed_count"], item["in_progress_count"], item["open_count"], item["merged_text"]] for item in result["summaries"]],
+        ["人员", "合并任务内容"],
+        [[item["name"], item["merged_text"]] for item in result["summaries"]],
     )
     add_sheet(
         "任务明细",
-        ["来源行", "问题关键字", "问题ID", "父级ID", "原始状态", "展示状态", "创建日期", "概要", "经办人", "报告人", "开发人员", "模块", "交付日期", "解决结果", "问题类型", "计划完成日期", "一致性", "是否纳入汇总"],
-        [[record[field] if field != "是否纳入汇总" else ("是" if record["included"] else "否") for field in ["source_row", "issue_key", "issue_id", "parent_id", "status_raw", "status", "created_at", "summary", "assignee", "reporter", "developer", "module", "delivery_date", "resolution", "issue_type", "planned_completion", "consistency", "是否纳入汇总"]] for record in result["records"]],
+        ["来源行", "问题关键字", "问题ID", "父级ID", "原始状态", "展示状态", "创建日期", "概要", "经办人", "报告人", "开发人员", "汇总人员", "汇总依据", "备注", "模块", "交付日期", "解决结果", "问题类型", "计划完成日期", "一致性", "是否纳入汇总"],
+        [[record[field] if field != "是否纳入汇总" else ("是" if record["included"] else "否") for field in ["source_row", "issue_key", "issue_id", "parent_id", "status_raw", "status", "created_at", "summary", "assignee", "reporter", "developer", "summary_person", "summary_source", "summary_note", "module", "delivery_date", "resolution", "issue_type", "planned_completion", "consistency", "是否纳入汇总"]] for record in result["records"]],
     )
     add_sheet(
         "异常清单",
@@ -350,5 +519,48 @@ def export_jira_xlsx(result: dict[str, Any], target: str | Path) -> None:
         ["标准字段", "原始表头", "列", "是否识别"],
         [[field, details["header"], details["column"], "是" if details["found"] else "否"] for field, details in result["field_mapping"].items()],
     )
+    workbook.save(target)
+    workbook.close()
+
+
+def export_daily_jira_xlsx(result: dict[str, Any], target: str | Path) -> None:
+    """导出每日 Jira 最终人员汇总和人员归属明细。"""
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = "每日Jira汇总"
+    summary_sheet.append(["汇总人员", "合并内容"])
+    for item in result["summaries"]:
+        summary_sheet.append([_excel_safe(item["name"]), _excel_safe(item["merged_text"])])
+
+    detail_sheet = workbook.create_sheet("筛选明细")
+    detail_sheet.append(["来源行", "问题关键字", "开发人员", "经办人", "报告人", "汇总人员", "汇总依据", "备注", "原始状态", "转换状态", "概要", "合并内容", "人员情况", "是否纳入"])
+    for record in result["records"]:
+        detail_sheet.append([_excel_safe(value) for value in [
+            record["source_row"], record["issue_key"], record["developer"], record["assignee"],
+            record["reporter"], record["summary_person"], record["summary_source"], record["summary_note"],
+            record["status_raw"], record["status"], record["summary"], record["summary_text"],
+            record["consistency"], "是" if record["included"] else "否",
+        ]])
+
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    for sheet in (summary_sheet, detail_sheet):
+        for cell in sheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for row in sheet.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+    summary_sheet.column_dimensions["A"].width = 18
+    summary_sheet.column_dimensions["B"].width = 80
+    for row_index in range(2, summary_sheet.max_row + 1):
+        line_count = max(1, str(summary_sheet.cell(row_index, 2).value or "").count("\n") + 1)
+        summary_sheet.row_dimensions[row_index].height = min(18 * line_count, 180)
+    detail_widths = [10, 18, 18, 18, 18, 18, 14, 40, 14, 14, 42, 52, 24, 12]
+    for index, width in enumerate(detail_widths, start=1):
+        detail_sheet.column_dimensions[get_column_letter(index)].width = width
     workbook.save(target)
     workbook.close()

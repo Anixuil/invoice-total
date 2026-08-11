@@ -31,7 +31,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from invoice_total import Extractor, sum_money
-from jira_processor import export_jira_xlsx, process_jira_workbook
+from jira_processor import (
+    export_daily_jira_xlsx,
+    export_jira_xlsx,
+    process_daily_jira_workbook,
+    process_jira_workbook,
+)
 from weekly_report_processor import (
     build_weekly_meeting_document,
     build_weekly_presentation,
@@ -122,6 +127,14 @@ def _safe_archive_member_name(raw_name: str) -> str:
         raise ValueError("压缩包包含不安全的目录路径")
     clean = "/".join(part for part in path.parts if part not in ("", "."))
     return clean or "unnamed.pdf"
+
+
+def _safe_upload_name(raw_name: str) -> str:
+    """保留目录上传的安全相对路径，普通上传仍显示文件名。"""
+    try:
+        return _safe_archive_member_name(raw_name)
+    except ValueError:
+        return _safe_name(raw_name)
 
 
 async def _save_upload(upload: UploadFile, path: Path, max_size: int = MAX_SIZE) -> tuple[int, bytes]:
@@ -334,7 +347,7 @@ async def upload(background_tasks: BackgroundTasks, files: list[UploadFile] = Fi
     try:
         for index, f in enumerate(files):
             raw_name = f.filename or "unnamed.pdf"
-            name = _safe_name(raw_name)
+            name = _safe_upload_name(raw_name)
             source_type = "zip" if name.lower().endswith(".zip") else "pdf" if name.lower().endswith(".pdf") else "unknown"
             source = {"name": name, "type": source_type, "entries": []}
             try:
@@ -465,7 +478,7 @@ def _jira_job_response(job: dict, include_result: bool = False) -> dict:
     return response
 
 
-def _process_jira_job(job_id: str, path: Path, display_name: str) -> None:
+def _process_jira_job(job_id: str, path: Path, display_name: str, mode: str = "weekly") -> None:
     with JIRA_JOBS_LOCK:
         job = JIRA_JOBS.get(job_id)
         if not job:
@@ -481,7 +494,8 @@ def _process_jira_job(job_id: str, path: Path, display_name: str) -> None:
                 current["updated_at"] = time.time()
 
     try:
-        result = process_jira_workbook(path, progress_callback=on_progress)
+        processor = process_daily_jira_workbook if mode == "daily" else process_jira_workbook
+        result = processor(path, progress_callback=on_progress)
         result["source"] = display_name
         with JIRA_JOBS_LOCK:
             job = JIRA_JOBS.get(job_id)
@@ -503,9 +517,11 @@ def _process_jira_job(job_id: str, path: Path, display_name: str) -> None:
 
 
 @app.post("/api/jira/import")
-async def jira_import(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def jira_import(background_tasks: BackgroundTasks, file: UploadFile = File(...), mode: str = "weekly"):
     """上传 Jira 导出的 xlsx，异步执行 Word 中的清洗、筛选、排序和合并步骤。"""
     _cleanup_jira_jobs()
+    if mode not in {"weekly", "daily"}:
+        raise HTTPException(status_code=400, detail="不支持的 Jira 处理模式")
     display_name = _safe_name(file.filename or "jira-export.xlsx")
     if not display_name.lower().endswith(".xlsx"):
         await file.close()
@@ -531,6 +547,7 @@ async def jira_import(background_tasks: BackgroundTasks, file: UploadFile = File
         "job_id": job_id,
         "status": "queued",
         "source": display_name,
+        "mode": mode,
         "directory": str(job_directory),
         "path": str(upload_path),
         "updated_at": time.time(),
@@ -540,7 +557,7 @@ async def jira_import(background_tasks: BackgroundTasks, file: UploadFile = File
     }
     with JIRA_JOBS_LOCK:
         JIRA_JOBS[job_id] = job
-    background_tasks.add_task(_process_jira_job, job_id, upload_path, display_name)
+    background_tasks.add_task(_process_jira_job, job_id, upload_path, display_name, mode)
     return _jira_job_response(job)
 
 
@@ -563,15 +580,17 @@ async def jira_export(job_id: str):
             raise HTTPException(status_code=404, detail="Jira 处理任务不存在或已过期")
         if job["status"] != "done" or not job.get("result"):
             raise HTTPException(status_code=409, detail="Jira 数据尚未处理完成")
-        target = Path(job["directory"]) / "jira-report.xlsx"
+        is_daily = job.get("mode") == "daily"
+        target = Path(job["directory"]) / ("daily-jira-report.xlsx" if is_daily else "jira-report.xlsx")
         result = job["result"]
         source = job.get("source", "jira-export.xlsx")
     if not target.exists():
-        export_jira_xlsx(result, target)
+        exporter = export_daily_jira_xlsx if is_daily else export_jira_xlsx
+        exporter(result, target)
     return FileResponse(
         target,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"{Path(source).stem}-处理结果.xlsx",
+        filename=f"{Path(source).stem}-{'每日Jira' if is_daily else '周报Jira'}处理结果.xlsx",
     )
 
 

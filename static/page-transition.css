@@ -65,6 +65,17 @@ main.shell > .top-nav {
 main.shell > .top-nav a {
   flex: 0 0 auto;
   white-space: nowrap;
+  transition: color .18s ease, background-color .18s ease, transform .14s cubic-bezier(.23, 1, .32, 1);
+}
+
+main.shell > .top-nav a:active {
+  transform: translateY(1px) scale(.985);
+}
+
+main.shell > .top-nav a:focus-visible,
+main.shell > .mode-switch a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .route-content {
@@ -117,6 +128,12 @@ body.page-transition.page-leaving {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  main.shell > .top-nav a {
+    transition: none;
+  }
+  main.shell > .top-nav a:active {
+    transform: none;
+  }
   body.page-transition,
   body.page-transition.page-ready,
   body.page-transition.page-leaving {

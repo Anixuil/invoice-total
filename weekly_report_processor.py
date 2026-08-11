@@ -38,10 +38,10 @@ PROJECT_HEADING = re.compile(
 
 SECTION_LABELS = {
     "current": ("本周工作完成情况", "本周完成情况", "本周进度"),
-    "next": ("下周研发计划", "下周工作计划", "下周计划"),
+    "next": ("下周计划", "下周工作计划", "下周研发计划"),
     "issues": ("本周问题", "问题、风险", "问题"),
 }
-SECTION_DISPLAY = {"current": "本周工作完成情况：", "next": "下周研发计划：", "issues": "本周问题："}
+SECTION_DISPLAY = {"current": "本周工作完成情况：", "next": "下周计划：", "issues": "本周问题："}
 IGNORED_SLIDE_TITLES = (
     "在建项目整体情况",
     "项目整体情况",
