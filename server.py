@@ -36,6 +36,9 @@ from jira_processor import (
     export_jira_xlsx,
     process_daily_jira_workbook,
     process_jira_workbook,
+    discover_weekly_files,
+    export_weekly_statistics_xlsx,
+    process_weekly_statistics,
 )
 from weekly_report_processor import (
     build_weekly_meeting_document,
@@ -65,6 +68,10 @@ JIRA_JOB_TTL = 60 * 60
 JIRA_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_jira_jobs"
 JIRA_JOBS = {}
 JIRA_JOBS_LOCK = threading.Lock()
+WEEKLY_JIRA_JOB_TTL = 60 * 60
+WEEKLY_JIRA_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_weekly_jira_jobs"
+WEEKLY_JIRA_JOBS = {}
+WEEKLY_JIRA_JOBS_LOCK = threading.Lock()
 WEEKLY_JOB_TTL = 60 * 60
 WEEKLY_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_weekly_jobs"
 WEEKLY_JOBS = {}
@@ -476,6 +483,159 @@ def _jira_job_response(job: dict, include_result: bool = False) -> dict:
     if include_result or job["status"] == "done":
         response["result"] = _public_jira_result(job["result"]) if job.get("result") else None
     return response
+
+
+def _cleanup_weekly_jira_jobs() -> None:
+    now = time.time()
+    expired = []
+    with WEEKLY_JIRA_JOBS_LOCK:
+        for job_id, job in WEEKLY_JIRA_JOBS.items():
+            if job.get("status") in {"done", "error"} and now - job.get("updated_at", now) > WEEKLY_JIRA_JOB_TTL:
+                expired.append((job_id, job.get("directory")))
+        for job_id, _ in expired:
+            WEEKLY_JIRA_JOBS.pop(job_id, None)
+    for _, directory in expired:
+        if directory:
+            shutil.rmtree(directory, ignore_errors=True)
+
+
+def _weekly_jira_job_response(job: dict) -> dict:
+    response = {"job_id": job["job_id"], "status": job["status"], "progress": dict(job["progress"]), "source": job.get("source", "")}
+    if job["status"] == "error":
+        response["error"] = job.get("error", "周报 Jira 处理失败")
+    if job["status"] == "done":
+        response["result"] = job.get("result")
+    return response
+
+
+def _extract_weekly_jira_zip(archive_path: Path, target_dir: Path) -> list[Path]:
+    paths = []
+    expanded_size = 0
+    with zipfile.ZipFile(archive_path) as archive:
+        for info in archive.infolist():
+            if info.is_dir() or not info.filename.lower().endswith(".xlsx"):
+                continue
+            member_name = _safe_archive_member_name(info.filename)
+            if Path(member_name).name.startswith("~$"):
+                continue
+            if info.flag_bits & 0x1:
+                raise ValueError(f"压缩包包含加密文件: {member_name}")
+            if info.file_size > MAX_SIZE:
+                raise ValueError(f"压缩包内 Excel 超过 20MB: {member_name}")
+            expanded_size += info.file_size
+            if expanded_size > MAX_ARCHIVE_UNPACKED_SIZE:
+                raise ValueError("周报压缩包展开后超过 200MB 限制")
+            target = target_dir.joinpath(*PurePosixPath(member_name).parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _extract_archive_member(archive, info, target, MAX_SIZE)
+            paths.append(target)
+    return paths
+
+
+def _process_weekly_jira_job(job_id: str) -> None:
+    with WEEKLY_JIRA_JOBS_LOCK:
+        job = WEEKLY_JIRA_JOBS.get(job_id)
+        if not job:
+            return
+        job["status"] = "running"
+        job["updated_at"] = time.time()
+
+    def on_progress(update: dict) -> None:
+        with WEEKLY_JIRA_JOBS_LOCK:
+            current = WEEKLY_JIRA_JOBS.get(job_id)
+            if current:
+                current["progress"] = update
+                current["updated_at"] = time.time()
+
+    try:
+        sources = discover_weekly_files([Path(item) for item in job["input_paths"]])
+        result = process_weekly_statistics(sources, progress_callback=on_progress)
+        target = Path(job["directory"]) / "weekly-jira-statistics.xlsx"
+        export_weekly_statistics_xlsx(result, target)
+        result["source_files"] = {key: path.name for key, path in sources.items()}
+        with WEEKLY_JIRA_JOBS_LOCK:
+            current = WEEKLY_JIRA_JOBS.get(job_id)
+            if current:
+                current.update({"status": "done", "result": result, "output": str(target), "progress": {"stage": "完成", "percent": 100, "detail": "当前周 Jira 统计已完成"}, "updated_at": time.time()})
+    except Exception as exc:
+        with WEEKLY_JIRA_JOBS_LOCK:
+            current = WEEKLY_JIRA_JOBS.get(job_id)
+            if current:
+                current.update({"status": "error", "error": str(exc), "progress": {"stage": "失败", "percent": 100, "detail": "无法生成当前周 Jira 统计"}, "updated_at": time.time()})
+
+
+@app.post("/api/jira/weekly-statistics/import")
+async def weekly_jira_statistics_import(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...)):
+    """接收当前周 Jira ZIP 或目录文件列表。"""
+    _cleanup_weekly_jira_jobs()
+    if not files:
+        raise HTTPException(status_code=400, detail="请上传周报 ZIP 或选择包含 Jira Excel 的目录")
+    job_id = uuid.uuid4().hex
+    WEEKLY_JIRA_JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    job_directory = Path(tempfile.mkdtemp(prefix=f"{job_id}_", dir=WEEKLY_JIRA_JOB_ROOT))
+    input_dir = job_directory / "inputs"
+    input_dir.mkdir()
+    paths = []
+    try:
+        for index, upload in enumerate(files):
+            name = _safe_upload_name(upload.filename or f"upload-{index}.xlsx")
+            path = input_dir / name
+            if path.exists():
+                path = input_dir / f"{index:03d}-{Path(name).name}"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            size, _ = await _save_upload(upload, path, WEEKLY_MAX_SIZE)
+            if size > WEEKLY_MAX_SIZE:
+                raise HTTPException(status_code=413, detail="周报上传文件超过 500MB 限制")
+            if size == 0:
+                continue
+            if path.suffix.lower() == ".zip":
+                extracted = _extract_weekly_jira_zip(path, input_dir / f"zip-{index}")
+                paths.extend(extracted)
+                path.unlink(missing_ok=True)
+            elif path.suffix.lower() == ".xlsx":
+                paths.append(path)
+            await upload.close()
+        if not paths:
+            raise HTTPException(status_code=400, detail="没有找到有效的周报 Excel 文件")
+        discover_weekly_files(paths)
+    except (HTTPException, ValueError) as exc:
+        shutil.rmtree(job_directory, ignore_errors=True)
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        for upload in files:
+            await upload.close()
+    job = {"job_id": job_id, "status": "queued", "source": "周报 Jira ZIP/目录", "directory": str(job_directory), "input_paths": [str(path) for path in paths], "progress": {"stage": "排队中", "percent": 0, "detail": "等待处理当前周 Jira 数据"}, "result": None, "error": "", "updated_at": time.time()}
+    with WEEKLY_JIRA_JOBS_LOCK:
+        WEEKLY_JIRA_JOBS[job_id] = job
+    background_tasks.add_task(_process_weekly_jira_job, job_id)
+    return _weekly_jira_job_response(job)
+
+
+@app.get("/api/jira/weekly-statistics/jobs/{job_id}")
+async def weekly_jira_statistics_job(job_id: str):
+    _cleanup_weekly_jira_jobs()
+    with WEEKLY_JIRA_JOBS_LOCK:
+        job = WEEKLY_JIRA_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="周报 Jira 任务不存在或已过期")
+        return _weekly_jira_job_response(job)
+
+
+@app.get("/api/jira/weekly-statistics/jobs/{job_id}/export")
+async def weekly_jira_statistics_export(job_id: str):
+    _cleanup_weekly_jira_jobs()
+    with WEEKLY_JIRA_JOBS_LOCK:
+        job = WEEKLY_JIRA_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="周报 Jira 任务不存在或已过期")
+        if job["status"] != "done":
+            raise HTTPException(status_code=409, detail="周报 Jira 数据尚未处理完成")
+        target = Path(job["output"])
+    if not target.exists():
+        raise HTTPException(status_code=410, detail="周报统计文件不存在或已清理")
+    return FileResponse(target, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="周报Jira统计结果.xlsx")
 
 
 def _process_jira_job(job_id: str, path: Path, display_name: str, mode: str = "weekly") -> None:

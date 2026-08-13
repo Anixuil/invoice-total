@@ -50,6 +50,12 @@
   .ghost-button { padding: 9px 13px; border: 1px solid var(--line-strong); color: var(--muted); background: #fff; }
   .ghost-button:hover { color: var(--text); background: var(--surface-soft); }
   .upload-meta { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 13px 8px 3px; color: var(--muted); font-size: 11px; }
+  .weekly-upload { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 10px; margin-top: 10px; padding: 13px 12px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+  .weekly-upload[hidden] { display: none !important; }
+  .weekly-upload .upload-copy { min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .weekly-upload .primary-button, .weekly-upload .ghost-button { min-height: 36px; white-space: nowrap; }
+  .weekly-upload .primary-button { padding: 9px 15px; }
+  .weekly-upload .ghost-button { padding: 8px 13px; }
   .meta-dot { display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--primary); }
   .progress-panel { margin-top: 12px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfd; }
   .progress-head { display: flex; align-items: center; gap: 12px; }
@@ -204,6 +210,7 @@
   .primary-button:hover { background: #ac3423; }
   .ghost-button { border-radius: 0; }
   .upload-meta { border-top: 1px solid var(--line); }
+  .weekly-upload { border-top-color: var(--line); background: #eeeae2; }
   .meta-dot { border-radius: 0; background: var(--primary); transform: rotate(45deg); }
   .progress-panel { border-radius: 0; background: #fffdf8; }
   .spinner { border-color: #d8d2c8; border-top-color: var(--primary); }
@@ -269,6 +276,9 @@
     .album-index { display: none; }
     .drop-zone { grid-template-columns: auto 1fr; padding: 24px 20px; }
     .drop-zone .primary-button { grid-column: 2; justify-self: start; }
+    .weekly-upload { grid-template-columns: 1fr 1fr; }
+    .weekly-upload .upload-copy { grid-column: 1 / -1; grid-row: 1; }
+    .weekly-upload .primary-button, .weekly-upload .ghost-button { width: 100%; }
     .summary-panel { grid-template-columns: 1fr; padding: 18px; }
     .summary-stats { grid-template-columns: repeat(2, 1fr); }
     .top-nav { margin-bottom: 22px; }
@@ -305,12 +315,19 @@
   <section class="panel upload-panel" aria-label="上传 Jira Excel">
     <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
       <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
-      <div class="upload-copy"><strong>拖入 Jira 导出的 .xlsx 文件</strong><span id="uploadHint">任务优先归属开发人员，其次经办人、报告人；发生回退时会保留备注。</span></div>
-      <button class="primary-button" type="button">选择 Excel</button>
+      <div class="upload-copy"><strong id="uploadTitle">拖入 Jira 导出的 .xlsx 文件</strong><span id="uploadHint">任务优先归属开发人员，其次经办人、报告人；发生回退时会保留备注。</span></div>
+      <button id="selectButton" class="primary-button" type="button">选择 Excel</button>
+    </div>
+    <div id="weeklyUpload" class="weekly-upload" hidden>
+      <button id="zipButton" class="primary-button" type="button">上传周报 ZIP</button>
+      <button id="directoryButton" class="ghost-button" type="button">选择数据目录</button>
+      <span id="weeklyFiles" class="upload-copy">尚未选择周报文件</span>
     </div>
     <div id="progress" class="progress-panel" hidden aria-live="polite"><div class="progress-head"><div class="spinner" aria-hidden="true"></div><div><strong id="progressTitle">正在处理 Jira 数据</strong><span id="progressText">等待开始</span></div></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div>
     <div class="upload-meta"><span><i class="meta-dot"></i>支持 Jira .xlsx 导出文件</span><span><i class="meta-dot"></i>单文件最大 20MB</span><span><i class="meta-dot"></i>处理完成后可下载汇总 Excel</span></div>
     <input id="file" type="file" accept=".xlsx,.XLSX" hidden>
+    <input id="zipFile" type="file" accept=".zip,.ZIP" hidden>
+    <input id="directoryFiles" type="file" webkitdirectory directory multiple accept=".xlsx,.XLSX" hidden>
   </section>
 
   <section id="workspace" class="workspace" hidden>
@@ -327,10 +344,13 @@
 </section>
   </div>
 </main>
-<script src="/static/page-transition.js?v=20260812-1"></script>
+<script src="/static/page-transition.js?v=20260813-2"></script>
 <script>
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
+const zipFileInput = document.getElementById('zipFile');
+const directoryInput = document.getElementById('directoryFiles');
+const weeklyUpload = document.getElementById('weeklyUpload');
 const progress = document.getElementById('progress');
 const workspace = document.getElementById('workspace');
 const downloadButton = document.getElementById('downloadButton');
@@ -358,17 +378,27 @@ if (isDaily) {
   document.getElementById('mismatchLabel').textContent = '人员不同';
   document.getElementById('resultsCopy').textContent = '按每日人员优先级生成汇总、归属明细和回退备注。';
   document.getElementById('anomalyTab').textContent = '人员备注';
+} 
+else {
+  weeklyUpload.hidden = false;
+  document.getElementById('uploadTitle').textContent = '上传周报 ZIP 或选择数据目录';
+  document.getElementById('uploadHint').textContent = '自动识别六类 Jira 导出文件，忽略 ~$ 临时文件并生成当前周统计。';
+  document.getElementById('selectButton').hidden = true;
 }
 
-drop.addEventListener('click', event => { if (!event.target.closest('.primary-button')) fileInput.click(); });
-drop.querySelector('.primary-button').addEventListener('click', event => { event.stopPropagation(); fileInput.click(); });
-drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); } });
+drop.addEventListener('click', event => { if (isDaily && !event.target.closest('.primary-button')) fileInput.click(); });
+document.getElementById('selectButton').addEventListener('click', event => { event.stopPropagation(); fileInput.click(); });
+document.getElementById('zipButton').addEventListener('click', () => zipFileInput.click());
+document.getElementById('directoryButton').addEventListener('click', () => directoryInput.click());
+drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); (isDaily ? fileInput : zipFileInput).click(); } });
 fileInput.addEventListener('change', () => { if (fileInput.files.length) upload(fileInput.files[0]); });
+zipFileInput.addEventListener('change', () => { if (zipFileInput.files.length) uploadWeekly(Array.from(zipFileInput.files)); });
+directoryInput.addEventListener('change', () => { if (directoryInput.files.length) uploadWeekly(Array.from(directoryInput.files)); });
 drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('is-dragging'); });
 drop.addEventListener('dragleave', event => { if (!drop.contains(event.relatedTarget)) drop.classList.remove('is-dragging'); });
-drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('is-dragging'); if (event.dataTransfer.files.length) upload(event.dataTransfer.files[0]); });
+drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('is-dragging'); if (!event.dataTransfer.files.length) return; const files = Array.from(event.dataTransfer.files); if (isDaily) upload(files[0]); else uploadWeekly(files); });
 document.getElementById('clearButton').addEventListener('click', reset);
-downloadButton.addEventListener('click', () => { if (currentJobId) window.location.href = `/api/jira/jobs/${encodeURIComponent(currentJobId)}/export`; });
+downloadButton.addEventListener('click', () => { if (!currentJobId) return; const endpoint = isDaily ? `/api/jira/jobs/${encodeURIComponent(currentJobId)}/export` : `/api/jira/weekly-statistics/jobs/${encodeURIComponent(currentJobId)}/export`; window.location.href = endpoint; });
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => showView(tab.dataset.view, tab)));
 
 async function upload(file) {
@@ -385,6 +415,62 @@ async function upload(file) {
     await poll(data.job_id);
   } catch (error) { showError(error.message || '上传失败'); }
   finally { fileInput.value = ''; drop.hidden = false; progress.hidden = true; }
+}
+
+async function uploadWeekly(files) {
+  const valid = files.filter(file => file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.zip'));
+  if (!valid.length) { showError('请选择周报 ZIP 或包含 Excel 的目录'); return; }
+  currentJobId = ''; currentResult = null; downloadButton.disabled = true;
+  document.getElementById('weeklyFiles').textContent = `已选择 ${valid.length} 个文件：${valid.map(file => file.name).join('、')}`;
+  drop.hidden = true; weeklyUpload.hidden = true; progress.hidden = false; workspace.hidden = true;
+  setProgress({ percent: 2, stage: '上传文件', detail: '正在上传周报 ZIP/目录数据' });
+  const body = new FormData(); valid.forEach(file => body.append('files', file, file.webkitRelativePath || file.name));
+  try {
+    const response = await fetch('/api/jira/weekly-statistics/import', { method: 'POST', body });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    currentJobId = data.job_id;
+    await pollWeekly(data.job_id);
+  } catch (error) { showError(error.message || '周报统计失败'); }
+  finally { zipFileInput.value = ''; directoryInput.value = ''; drop.hidden = false; weeklyUpload.hidden = false; progress.hidden = true; }
+}
+
+async function pollWeekly(jobId) {
+  while (true) {
+    await wait(450);
+    const response = await fetch(`/api/jira/weekly-statistics/jobs/${encodeURIComponent(jobId)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    setProgress(data.progress || {});
+    if (data.status === 'done') { currentResult = data.result; renderWeekly(data.source, data.result); return; }
+    if (data.status === 'error') throw new Error(data.error || '周报统计失败');
+  }
+}
+
+function renderWeekly(source, result) {
+  workspace.hidden = false; downloadButton.disabled = false;
+  document.getElementById('sourceName').textContent = source || '周报 ZIP/目录';
+  document.getElementById('summaryNotice').textContent = `报告日期：${result.report_date || '—'}；已处理 ${result.stats?.total_rows || 0} 条 Jira 记录，异常 ${result.stats?.anomaly_count || 0} 条。`;
+  document.getElementById('resultsCopy').textContent = '当前周 23 人统计、延期/挂起明细和异常清单。';
+  document.getElementById('totalStat').textContent = result.stats?.total_rows || 0;
+  document.getElementById('includedStat').textContent = result.summary?.length || 0;
+  document.getElementById('pendingStat').textContent = result.stats?.anomaly_count || 0;
+  document.getElementById('mismatchStat').textContent = result.report_date || '—';
+  renderWeeklySummary(result.summary || []); renderWeeklyDetails(result.sections || {}); renderAnomalies(result.anomalies || []); renderMapping({来源文件: {header: Object.values(result.source_files || {}).join('、'), column: '', found: true}});
+  showView('summaryView', document.querySelector('.tab[data-view="summaryView"]'));
+}
+
+function renderWeeklySummary(items) {
+  const target = document.getElementById('summaryView');
+  const headers = ['姓名','本周新增任务数','本周完成任务数','本周新增缺陷数','本周已修复缺陷数','本周延期缺陷数','总挂起缺陷数','本周延期任务数','总挂起任务数'];
+  const keys = ['new_task_count','completed_task_count','new_defect_count','fixed_defect_count','delayed_defect_count','pending_defect_count','delayed_task_count','pending_task_count'];
+  target.innerHTML = `<div class="table-scroll"><table class="summary-table"><thead><tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr></thead><tbody>${items.map(item => `<tr><td><strong>${esc(item['姓名'])}</strong></td>${keys.map((key, index) => `<td class="${index >= 4 && item[key] ? 'is-warning' : ''}">${item[key] || (index >= 4 ? '' : 0)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderWeeklyDetails(sections) {
+  const labels = { delayed_defects: '本周延期缺陷数', pending_defects: '总挂起缺陷数', delayed_tasks: '本周延期任务数', pending_tasks: '总挂起任务数' };
+  const target = document.getElementById('detailView');
+  target.innerHTML = Object.entries(labels).map(([key, label]) => `<h3>${label}</h3><div class="table-scroll"><table><thead><tr><th>问题关键字</th><th>状态</th><th>概要</th><th>经办人</th><th>开发人员</th><th>交付日期</th><th>解决结果</th><th>归属备注</th></tr></thead><tbody>${(sections[key] || []).map(row => `<tr><td>${esc(row.issue_key)}</td><td>${esc(row.status)}</td><td>${esc(row.summary)}</td><td>${esc(row.assignee)}</td><td>${esc(row.developer)}</td><td>${esc(row.delivery_date || '')}</td><td>${esc(row.resolution || '')}</td><td>${esc(row.owner_note || '')}</td></tr>`).join('')}</tbody></table></div>`).join('');
 }
 
 async function poll(jobId) {
