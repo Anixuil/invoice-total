@@ -192,6 +192,8 @@
     display: flex;
     gap: 8px;
   }
+  .select-actions .folder-button { order: 1; }
+  .select-actions .select-button { order: 2; }
   .folder-button {
     padding: 10px 16px;
     border: 1px solid var(--line-strong);
@@ -337,7 +339,15 @@
     font-size: 18px;
     font-weight: 700;
     line-height: 1.55;
+    letter-spacing: .18em;
     overflow-wrap: anywhere;
+  }
+  .uppercase-amount .amount-digit {
+    display: inline-block;
+    color: var(--primary);
+    font-weight: 900;
+    text-shadow: 0 0 0 currentColor;
+    transform: scale(1.08);
   }
   .copy-button {
     display: inline-flex;
@@ -785,12 +795,13 @@
   .select-button {
     padding: 12px 20px;
     border-radius: 0;
-    background: var(--primary);
+    color: #f7f3eb;
+    background: var(--text);
     letter-spacing: .04em;
   }
-  .select-button:hover { background: #ac3423; }
-  .folder-button { border-radius: 0; border-color: var(--text); }
-  .folder-button:hover { border-color: var(--primary); color: var(--primary); background: #fffaf3; }
+  .select-button:hover { background: #393834; }
+  .folder-button { border-radius: 0; border-color: var(--primary); color: #f7f3eb; background: var(--primary); }
+  .folder-button:hover { border-color: #ac3423; color: #f7f3eb; background: #ac3423; }
   .upload-meta { border-top: 1px solid var(--line); }
   .meta-dot { border-radius: 0; background: var(--primary); transform: rotate(45deg); }
   .progress-panel { border-radius: 0; background: var(--surface-solid); }
@@ -934,7 +945,7 @@
       </div>
       <div class="select-actions">
         <button class="select-button" type="button">选择文件</button>
-        <button class="folder-button" type="button">选择目录</button>
+        <button class="folder-button" type="button">选择文件夹</button>
       </div>
     </div>
     <div id="progress" class="progress-panel" hidden aria-live="polite">
@@ -1498,7 +1509,16 @@ function fmt(value) {
 
 function updateUppercaseTotal(value) {
   const hasAmount = value !== null && value !== undefined && Number.isFinite(Number(value));
-  uppercaseAmount.textContent = hasAmount ? moneyToChineseUppercase(value) : '—';
+  if (hasAmount) {
+    const uppercaseText = moneyToChineseUppercase(value).replace(/^人民币/, '');
+    uppercaseAmount.innerHTML = [...uppercaseText].map(character =>
+      '零壹贰叁肆伍陆柒捌玖'.includes(character)
+        ? `<span class="amount-digit">${character}</span>`
+        : character
+    ).join('');
+  } else {
+    uppercaseAmount.textContent = '—';
+  }
   copyUppercase.disabled = !hasAmount;
   copyUppercase.classList.remove('is-copied');
   copyUppercase.querySelector('span').textContent = '复制大写金额';
@@ -1509,6 +1529,7 @@ function moneyToChineseUppercase(value) {
   const amount = Number(value);
   const maxAmount = 9999999999999.99;
   if (!Number.isFinite(amount) || Math.abs(amount) > maxAmount) return '金额超出转换范围';
+  if (amount === 0) return '人民币零元整';
 
   const digits = '零壹贰叁肆伍陆柒捌玖';
   const groupUnits = ['', '万', '亿', '万亿'];
@@ -1561,7 +1582,7 @@ function moneyToChineseUppercase(value) {
   let result = `人民币${amount < 0 ? '负' : ''}${convertInteger(integer)}元`;
   if (!jiao && !fen) return result + '整';
   if (jiao) result += digits[jiao] + '角';
-  if (fen) result += (!jiao ? digits[0] : '') + digits[fen] + '分';
+  if (fen || jiao) result += (!jiao ? digits[0] : '') + digits[fen] + '分';
   return result;
 }
 
