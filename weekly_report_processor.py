@@ -313,11 +313,25 @@ def _is_ignored_slide(texts: list[str], slide_number: int, slide_count: int) -> 
     if slide_number in {1, slide_count}:
         return True
     compact_texts = [re.sub(r"\s+", "", _text(text)).lower() for text in texts]
+    if any(_is_outro_text(text) for text in compact_texts):
+        return True
     return any(
         title in text
         for text in compact_texts
         for title in IGNORED_SLIDE_TITLES
     )
+
+
+def _is_outro_text(text: str) -> bool:
+    compact = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", _text(text)).lower()
+    return "期待与您携手共赢" in compact
+
+
+def _is_outro_slide(slide) -> bool:
+    texts = [entry["text"] for entry in _flatten_shapes(slide.shapes) if entry["text"]]
+    # 文案可能被拆成多个文本框（例如“期待与您携手”+“共赢”）。
+    joined = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", "".join(texts)).lower()
+    return "期待与您携手共赢" in joined or any(_is_outro_text(text) for text in texts)
 
 
 def _audit_shape_bounds(entries: list[dict[str, Any]], width: int, height: int, file: str, slide: int, project: str) -> list[dict[str, Any]]:
@@ -346,7 +360,10 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
         entries = _flatten_shapes(slide.shapes)
         texts = [entry["text"] for entry in entries if entry["text"]]
         has_sections = any(_is_section_label(text) for text in texts)
-        if not has_sections and _is_ignored_slide(texts, slide_number, slide_count):
+        # 结束页可能包含模板残留文本，不能仅依赖“无内容字段”判断，
+        # 否则它会被当作项目页复制到汇总 PPT，造成重复结尾页。
+        is_outro = _is_outro_slide(slide)
+        if is_outro or (not has_sections and _is_ignored_slide(texts, slide_number, slide_count)):
             continue
         if not texts:
             issues.append({"severity": "warning", "code": "blank_slide", "label": "空白页", "file": display_name, "slide": slide_number, "location": "整页", "project": "", "detail": "页面没有可识别文字内容。", "suggestion": "确认是否是误上传的空白页。"})
@@ -549,6 +566,17 @@ def _remove_slide(presentation: Presentation, slide) -> None:
     presentation.slides._sldIdLst.remove(slide_id)
 
 
+def _retain_single_outro_slide(presentation: Presentation) -> None:
+    """Keep only the template's ending slide in the generated deck."""
+    outro_slides = [slide for slide in presentation.slides if _is_outro_slide(slide)]
+    if len(outro_slides) <= 1:
+        return
+    # New slides are inserted before the template outro, so the final match is
+    # the canonical ending page. Remove any earlier duplicates in reverse order.
+    for slide in reversed(outro_slides[:-1]):
+        _remove_slide(presentation, slide)
+
+
 def _clear_paragraph_runs(paragraph, value: str) -> None:
     runs = paragraph.runs
     if runs:
@@ -699,6 +727,41 @@ def _fit_body_font(shape, minimum: int = 9) -> None:
             run.font.size = Pt(minimum)
 
 
+def _format_project_body(shape) -> None:
+    """Apply the project-report body formatting."""
+    shape.text_frame.margin_left = 0
+    lines = []
+    for paragraph in shape.text_frame.paragraphs:
+        value = re.sub(r"^[\s·•]+", "", _text(paragraph.text))
+        lines.append(f"· {value}" if value else "")
+    if lines and "\n".join(lines) != shape.text:
+        shape.text = "\n".join(lines)
+    shape.text_frame.word_wrap = True
+    for paragraph in shape.text_frame.paragraphs:
+        paragraph.alignment = PP_ALIGN.LEFT
+        paragraph.level = 0
+        for run in paragraph.runs:
+            run.font.name = "思源黑体 CN VF Light"
+
+
+def _set_project_body_font(shape, font_size: int) -> None:
+    for paragraph in shape.text_frame.paragraphs:
+        paragraph.alignment = PP_ALIGN.LEFT
+        paragraph.level = 0
+        for run in paragraph.runs:
+            run.font.name = "思源黑体 CN VF Light"
+            run.font.size = Pt(font_size)
+
+
+def _project_body_font_size(shape) -> int:
+    _format_project_body(shape)
+    for font_size in (14, 12, 10):
+        _set_project_body_font(shape, font_size)
+        if len(_text_chunks(shape)) <= 1:
+            return font_size
+    return 10
+
+
 def _shape_capacity_for_font(shape, font_size: float) -> tuple[int, int]:
     emu_per_point = 12700
     chars_per_line = max(8, int(int(shape.width) / (font_size * emu_per_point * 0.95)))
@@ -727,7 +790,8 @@ def _overflow_chunks(slide) -> dict[str, list[str]]:
     for entry in _flatten_shapes(slide.shapes):
         if not entry["text"] or _text_role(entry["text"]) != "body":
             continue
-        _fit_body_font(entry["shape"])
+        font_size = _project_body_font_size(entry["shape"])
+        _set_project_body_font(entry["shape"], font_size)
         values = _text_chunks(entry["shape"])
         if len(values) > 1:
             chunks[entry["path"]] = values
@@ -1020,6 +1084,11 @@ def build_weekly_presentation(
     placeholder_numbers = sorted(_project_slide_numbers(presentation), reverse=True)
     placeholder_slides = [presentation.slides[slide_number - 1] for slide_number in placeholder_numbers]
     outro_index = len(presentation.slides) - 1
+    for slide_number in sorted(
+        [slide_number for slide_number, slide in enumerate(presentation.slides, start=1) if _is_outro_slide(slide)],
+        reverse=True,
+    ):
+        _remove_slide(presentation, presentation.slides[slide_number - 1])
     source_cache: dict[str, Presentation] = {}
     style_presentation = Presentation(template)
     style_slides = {
@@ -1030,12 +1099,19 @@ def build_weekly_presentation(
     generated_groups = []
 
     def place_before_outro(slide) -> None:
-        nonlocal outro_index
         slide_ids = presentation.slides._sldIdLst
-        last = slide_ids[-1]
-        slide_ids.remove(last)
-        slide_ids.insert(outro_index, last)
-        outro_index += 1
+        # 新克隆页会先追加到末尾；将它移动到当前唯一结尾页之前。
+        slide_id = next(item for item in slide_ids if item.id == slide.slide_id)
+        slide_ids.remove(slide_id)
+        outro_slide = next(
+            (candidate for candidate in presentation.slides if _is_outro_slide(candidate)),
+            None,
+        )
+        if outro_slide is None:
+            slide_ids.append(slide_id)
+            return
+        outro_id = next(item for item in slide_ids if item.id == outro_slide.slide_id)
+        slide_ids.insert(slide_ids.index(outro_id), slide_id)
 
     for project in result["projects"]:
         template_slide = style_slides.get(project["key"])
@@ -1061,6 +1137,8 @@ def build_weekly_presentation(
             if display_name not in source_cache:
                 source_cache[display_name] = Presentation(source_lookup[display_name])
             source_slide = source_cache[display_name].slides[source["slide"] - 1]
+            if _is_outro_slide(source_slide):
+                continue
             cloned = _clone_source_slide(presentation, source_slide)
             _normalize_source_project_layout(cloned)
             place_before_outro(cloned)
@@ -1076,6 +1154,7 @@ def build_weekly_presentation(
             })
     for placeholder_slide in placeholder_slides:
         _remove_slide(presentation, placeholder_slide)
+    _retain_single_outro_slide(presentation)
     qa = _generation_qa(presentation, generated_groups, progress_callback=progress_callback)
     result["qa"] = qa
     result["issues"].extend(qa["issues"])
@@ -1110,6 +1189,11 @@ def _paragraph_copy(template_paragraph, value: str):
     return paragraph
 
 
+def _meeting_bullet_value(value: str) -> str:
+    clean = re.sub(r"^[\s\u00b7\u2022]+", "", _text(value))
+    return f"\u00b7 {clean}" if clean else "\u00b7 "
+
+
 def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, template: str | Path = DOCX_TEMPLATE) -> None:
     """在部门周例会模板的项目区域填充合并后 PPT 的三类内容。"""
     document = Document(template)
@@ -1139,7 +1223,7 @@ def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, te
             tc.append(_paragraph_copy(label_template, SECTION_DISPLAY[key]))
             values = [line for line in project.get(key, "").splitlines() if line.strip()] or ["无"]
             for value in values:
-                tc.append(_paragraph_copy(bullet_template, value))
+                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value)))
             tc.append(deepcopy(blank_template._p))
     document.save(target)
 
