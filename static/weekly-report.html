@@ -76,7 +76,7 @@
   .stat strong { display:block; margin-top:6px; color:#f7f3eb; font-family:Georgia,serif; font-size:21px; font-weight:400; }
   .stat.is-warn strong { color:#d6a65a; }
   .stat.is-error strong { color:#e38379; }
-  .actions { position:relative; display:flex; justify-content:flex-end; gap:9px; margin-top:14px; }
+  .actions { position:relative; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:9px; margin-top:14px; }
   .summary-panel .ghost-button { color:#f7f3eb; }
   .results-head { margin:40px 2px 12px; padding-bottom:12px; border-bottom:2px solid var(--text); }
   .results-head h2 { margin:0; font-size:22px; }
@@ -155,7 +155,7 @@
     <section id="workspace" class="workspace" hidden>
       <div class="panel summary-panel">
         <div><div class="summary-kicker">来源压缩包</div><div id="sourceName" class="summary-source">—</div><div id="outputName" class="output-name">—</div><div id="summaryNotice" class="notice">—</div></div>
-        <div><div class="summary-stats"><div class="stat"><span>模板项目</span><strong id="projectStat">0</strong></div><div class="stat"><span>已对应</span><strong id="matchedStat">0</strong></div><div class="stat is-error"><span>错误</span><strong id="errorStat">0</strong></div><div class="stat is-warn"><span>待确认</span><strong id="warningStat">0</strong></div></div><div class="actions"><button id="clearButton" class="ghost-button" type="button">清空结果</button><button id="downloadButton" class="primary-button" type="button" disabled>下载三件套</button></div></div>
+        <div><div class="summary-stats"><div class="stat"><span>模板项目</span><strong id="projectStat">0</strong></div><div class="stat"><span>已对应</span><strong id="matchedStat">0</strong></div><div class="stat is-error"><span>错误</span><strong id="errorStat">0</strong></div><div class="stat is-warn"><span>待确认</span><strong id="warningStat">0</strong></div></div><div class="actions"><button id="clearButton" class="ghost-button" type="button">清空结果</button><button id="downloadPptButton" class="primary-button" type="button" disabled>下载总周报 PPTX</button><button id="downloadDocxButton" class="primary-button" type="button" disabled>下载周例会 DOCX</button><button id="downloadXlsxButton" class="primary-button" type="button" disabled>下载审核报告 XLSX</button><button id="downloadZipButton" class="ghost-button" type="button" disabled>下载三件套 ZIP</button></div></div>
       </div>
       <div class="results-head"><h2>整合与审核结果</h2><p>所有问题都标明源文件、页码、对象位置和处理建议。</p></div>
       <div class="tabs" role="tablist"><button class="tab is-active" data-view="assemblyView" type="button">合并清单</button><button class="tab" data-view="auditView" type="button">审核结果</button><button class="tab" data-view="qaView" type="button">生成质量</button><button class="tab" data-view="meetingView" type="button">周例会内容</button><button class="tab" data-view="sourceView" type="button">文件目录</button></div>
@@ -163,14 +163,14 @@
     </section>
   </div>
 </main>
-<script src="/static/page-transition.js?v=20260811-3"></script>
+<script src="/static/page-transition.js?v=20260812-1"></script>
 <script>
 const drop=document.getElementById('drop');
 const fileInput=document.getElementById('file');
 const selectedPanel=document.getElementById('selectedFile');
 const progress=document.getElementById('progress');
 const workspace=document.getElementById('workspace');
-const downloadButton=document.getElementById('downloadButton');
+const downloadButtons={ppt:document.getElementById('downloadPptButton'),docx:document.getElementById('downloadDocxButton'),xlsx:document.getElementById('downloadXlsxButton'),zip:document.getElementById('downloadZipButton')};
 let selectedFile=null,currentJobId='',currentResult=null,viewTimer=null;
 const VIEW_MS=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?0:220;
 
@@ -184,7 +184,7 @@ fileInput.addEventListener('change',()=>{choose(fileInput.files[0]);fileInput.va
 document.getElementById('removeButton').addEventListener('click',()=>choose(null));
 document.getElementById('startButton').addEventListener('click',upload);
 document.getElementById('clearButton').addEventListener('click',reset);
-downloadButton.addEventListener('click',()=>{if(currentJobId)window.location.href=`/api/weekly-report/jobs/${encodeURIComponent(currentJobId)}/export`;});
+Object.entries(downloadButtons).forEach(([kind,button])=>button.addEventListener('click',()=>{if(currentJobId)window.location.href=`/api/weekly-report/jobs/${encodeURIComponent(currentJobId)}/export${kind==='zip'?'':`/${kind}`}`;}));
 document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>showView(tab.dataset.view,tab)));
 
 function choose(file){
@@ -215,8 +215,8 @@ function setProgress(info){
 }
 
 function render(source,result){
-  currentResult=result;workspace.hidden=false;downloadButton.disabled=false;const stats=result.stats||{};
-  document.getElementById('sourceName').textContent=source||'部门项目周报.zip';document.getElementById('outputName').textContent=`输出：${result.output_stem}.pptx · 部门周例会${String(result.output_stem).replace('项目周报','')}.docx`;
+  currentResult=result;workspace.hidden=false;setDownloadState(false);const stats=result.stats||{};
+  document.getElementById('sourceName').textContent=source||'部门项目周报.zip';document.getElementById('outputName').textContent=`输出：${result.output_stem}.pptx · 部门周例会${String(result.output_stem).replace('项目周报','')}.docx · ${result.output_stem}-审核报告.xlsx`;
   document.getElementById('projectStat').textContent=stats.project_count||0;document.getElementById('matchedStat').textContent=stats.matched_projects||0;document.getElementById('errorStat').textContent=stats.error_count||0;document.getElementById('warningStat').textContent=stats.warning_count||0;
   const qa=result.qa||{};const qaText=qa.status?`生成质量 ${qa.score??'—'} 分，${qa.status}`:'';const notice=document.getElementById('summaryNotice');notice.className=`notice${stats.error_count||stats.warning_count||qa.stable===false?' is-warn':''}`;notice.textContent=stats.error_count||stats.warning_count?`整合文件已生成；审核发现 ${stats.error_count||0} 个错误、${stats.warning_count||0} 个待确认项。${qaText}`:`${stats.project_count||0} 个模板项目均已对应。${qaText}`;
   renderAssembly(result.projects||[]);renderAudit(result.issues||[]);renderQa(qa);renderMeeting(result.meeting_projects||[]);renderSources(result.sources||[]);showView('assemblyView',document.querySelector('.tab[data-view="assemblyView"]'));requestAnimationFrame(()=>workspace.scrollIntoView({behavior:'smooth',block:'start'}));
@@ -253,8 +253,9 @@ function tableView(viewId,inputId,countId,items,searchText,placeholder,head,rowH
 
 function showView(id,activeTab){const next=document.getElementById(id);if(!next)return;if(viewTimer){clearTimeout(viewTimer);viewTimer=null;}document.querySelectorAll('.view-panel.is-leaving').forEach(view=>{view.hidden=true;view.classList.remove('is-leaving','is-active-view');});document.querySelectorAll('.tab').forEach(tab=>tab.classList.toggle('is-active',tab===activeTab));const current=document.querySelector('.view-panel.is-active-view');if(current===next)return;const reveal=()=>{next.hidden=false;next.classList.remove('is-leaving','is-entering','is-active-view');requestAnimationFrame(()=>next.classList.add('is-active-view','is-entering'));};if(current&&!current.hidden){current.classList.remove('is-active-view');current.classList.add('is-leaving');viewTimer=setTimeout(()=>{current.hidden=true;current.classList.remove('is-leaving','is-entering','is-active-view');viewTimer=null;reveal();},VIEW_MS);return;}reveal();}
 function showUploadError(message){selectedFile=null;selectedPanel.hidden=true;window.alert(message);}
-function showError(message){currentJobId='';currentResult=null;downloadButton.disabled=true;workspace.hidden=false;document.getElementById('sourceName').textContent='处理失败';document.getElementById('outputName').textContent='未生成文件';const notice=document.getElementById('summaryNotice');notice.className='notice is-warn';notice.textContent=message;['projectStat','matchedStat','errorStat','warningStat'].forEach(id=>document.getElementById(id).textContent='—');document.querySelectorAll('.view-panel').forEach(view=>{view.innerHTML='';view.hidden=true;view.classList.remove('is-active-view','is-entering','is-leaving');});const first=document.getElementById('assemblyView');first.hidden=false;first.classList.add('is-active-view');first.innerHTML='<div class="empty">请检查压缩包后重新处理</div>';}
-function reset(){selectedFile=null;currentJobId='';currentResult=null;workspace.hidden=true;downloadButton.disabled=true;selectedPanel.hidden=true;document.querySelectorAll('.view-panel').forEach(view=>{view.innerHTML='';view.hidden=true;view.classList.remove('is-active-view','is-entering','is-leaving');});const first=document.getElementById('assemblyView');first.hidden=false;first.classList.add('is-active-view');}
+function setDownloadState(disabled){Object.values(downloadButtons).forEach(button=>button.disabled=disabled);}
+function showError(message){currentJobId='';currentResult=null;setDownloadState(true);workspace.hidden=false;document.getElementById('sourceName').textContent='处理失败';document.getElementById('outputName').textContent='未生成文件';const notice=document.getElementById('summaryNotice');notice.className='notice is-warn';notice.textContent=message;['projectStat','matchedStat','errorStat','warningStat'].forEach(id=>document.getElementById(id).textContent='—');document.querySelectorAll('.view-panel').forEach(view=>{view.innerHTML='';view.hidden=true;view.classList.remove('is-active-view','is-entering','is-leaving');});const first=document.getElementById('assemblyView');first.hidden=false;first.classList.add('is-active-view');first.innerHTML='<div class="empty">请检查压缩包后重新处理</div>';}
+function reset(){selectedFile=null;currentJobId='';currentResult=null;workspace.hidden=true;setDownloadState(true);selectedPanel.hidden=true;document.querySelectorAll('.view-panel').forEach(view=>{view.innerHTML='';view.hidden=true;view.classList.remove('is-active-view','is-entering','is-leaving');});const first=document.getElementById('assemblyView');first.hidden=false;first.classList.add('is-active-view');}
 function badgeClass(status){return status==='通过'?'badge-success':status==='待确认'?'badge-warn':'badge-error';}
 function severityClass(value){return value==='error'?'badge-error':value==='warning'?'badge-warn':'badge-info';}
 function severityText(value){return value==='error'?'错误':value==='warning'?'待确认':'信息';}

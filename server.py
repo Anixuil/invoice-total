@@ -715,6 +715,12 @@ def _process_weekly_job(job_id: str) -> None:
                 current["status"] = "done"
                 current["result"] = result
                 current["export_path"] = str(zip_target)
+                current["export_paths"] = {
+                    "ppt": str(ppt_target),
+                    "docx": str(word_target),
+                    "xlsx": str(report_target),
+                    "zip": str(zip_target),
+                }
                 current["progress"] = {"stage": "完成", "percent": 100, "detail": "周报已完成核验"}
                 current["updated_at"] = time.time()
     except Exception as exc:
@@ -811,6 +817,29 @@ async def weekly_report_export(job_id: str):
         media_type="application/zip",
         filename=zip_target.name,
     )
+
+
+@app.get("/api/weekly-report/jobs/{job_id}/export/{file_kind}")
+async def weekly_report_file_export(job_id: str, file_kind: str):
+    """下载周报任务生成的单个文件。"""
+    media_types = {
+        "ppt": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    if file_kind not in media_types:
+        raise HTTPException(status_code=404, detail="不支持的周报导出文件类型")
+    _cleanup_weekly_jobs()
+    with WEEKLY_JOBS_LOCK:
+        job = WEEKLY_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="周报任务不存在或已过期")
+        if job["status"] != "done" or not job.get("result"):
+            raise HTTPException(status_code=409, detail="周报数据尚未处理完成")
+        target = Path(job.get("export_paths", {}).get(file_kind, ""))
+    if not target.is_file():
+        raise HTTPException(status_code=410, detail="周报结果文件不存在或已清理，请重新上传")
+    return FileResponse(target, media_type=media_types[file_kind], filename=target.name)
 
 
 if __name__ == "__main__":

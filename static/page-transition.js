@@ -123,6 +123,9 @@
       document.head.appendChild(nextStyleElement);
 
       nextShell.classList.remove('route-shell', 'route-entering', 'route-ready', 'route-leaving');
+      // Jira 页面根据 window.location.search 初始化周报/每日模式，必须先同步路由再执行内联脚本。
+      if (pushHistory) window.history.pushState({}, '', path);
+      currentRoutePath = routeKey(path);
       currentContent.replaceWith(nextShell);
       replaced = true;
       window.scrollTo(0, 0);
@@ -131,8 +134,6 @@
         executeInlineScripts(loadedDocument);
       }
       bindNavigation(document.querySelector('main.shell'));
-      if (pushHistory) window.history.pushState({}, '', path);
-      currentRoutePath = routeKey(path);
       updateActiveNavigation(path);
       routeCache.set(currentRoutePath, {
         content: nextShell,
@@ -155,9 +156,10 @@
       if (previousStyle && !previousStyle.isConnected) document.head.appendChild(previousStyle);
       document.title = previousTitle;
       syncModeSwitch(previousRoutePath, previousModeSwitchHTML);
-      if (!pushHistory && routeKey(window.location.href) !== previousRoutePath) {
+      if (routeKey(window.location.href) !== previousRoutePath) {
         window.history.replaceState({}, '', previousRoutePath);
       }
+      currentRoutePath = previousRoutePath;
       window.console.error(error);
     } finally {
       navigationPending = false;

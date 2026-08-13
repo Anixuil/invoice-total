@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+.tmp
+tmp
+*.log
+AGENTS.md
+README.md
+sample_invoice.pdf
+make_sample_invoice.py

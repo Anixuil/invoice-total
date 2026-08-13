@@ -1,0 +1,18 @@
+services:
+  invoice-total:
+    image: invoice-total:latest
+    build:
+      context: .
+    container_name: invoice-total
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    volumes:
+      - invoice-total-tmp:/tmp/invoice_total_preview_jobs
+      - invoice-total-jira-tmp:/tmp/invoice_total_jira_jobs
+      - invoice-total-weekly-tmp:/tmp/invoice_total_weekly_jobs
+
+volumes:
+  invoice-total-tmp:
+  invoice-total-jira-tmp:
+  invoice-total-weekly-tmp:

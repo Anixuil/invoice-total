@@ -365,10 +365,6 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
         project_title = best_project.get("title", "")
         if (best_mode in {"alias", "similar"} or title_mode == "inferred") and project_title:
             issues.append({"severity": "warning", "code": "title_alias", "label": "标题需确认", "file": display_name, "slide": slide_number, "location": f"对象 {next((e['path'] for e in entries if e['text'] == title), '标题区域')}", "project": project_title, "detail": f"源标题“{title}”按别名或相似规则对应“{project_title}”。", "suggestion": "确认该页确实属于对应项目。"})
-        if not reporter and project_title:
-            issues.append({"severity": "warning", "code": "reporter_missing", "label": "汇报人缺失", "file": display_name, "slide": slide_number, "location": "标题区域", "project": project_title, "detail": "标题没有包含“汇报人”信息。", "suggestion": "按模板补充汇报人。"})
-        elif reporter and project_title and _normalize_title(reporter) != _normalize_title(best_project.get("reporter", "")):
-            issues.append({"severity": "warning", "code": "reporter_mismatch", "label": "汇报人不一致", "file": display_name, "slide": slide_number, "location": "标题区域", "project": project_title, "detail": f"源文件为“{reporter}”，模板为“{best_project.get('reporter', '')}”。", "suggestion": "以模板中的汇报人为准，并在审核结果确认。"})
         placeholders = [entry for entry in entries if re.search(r"X{2,}|Ｘ{2,}", entry["text"])]
         for entry in placeholders:
             issues.append({"severity": "error", "code": "placeholder", "label": "模板占位符未替换", "file": display_name, "slide": slide_number, "location": f"对象 {entry['path']}", "project": project_title, "detail": f"发现未替换内容：{entry['text'][:80]}", "suggestion": "补充真实周报内容后再合并。"})
@@ -376,24 +372,6 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
             section_key: _section_from_entries(entries, section_key)
             for section_key in SECTION_DISPLAY
         }
-        for section_key, section_label in SECTION_DISPLAY.items():
-            section_exists = any(_is_section_label(entry["text"], section_key) for entry in entries)
-            if not section_exists or (section_key != "issues" and not section_values[section_key]):
-                issues.append({
-                    "severity": "warning",
-                    "code": "section_missing",
-                    "label": "内容字段缺失",
-                    "file": display_name,
-                    "slide": slide_number,
-                    "location": f"{section_label}区域",
-                    "project": project_title,
-                    "detail": (
-                        f"未识别到“{section_label.rstrip('：')}”字段。"
-                        if not section_exists
-                        else f"“{section_label.rstrip('：')}”字段没有有效内容。"
-                    ),
-                    "suggestion": "按项目周报模板补充该字段；没有问题时填写“无”。",
-                })
         issues.extend(_audit_shape_bounds(entries, width, height, display_name, slide_number, project_title))
         slides.append({
             "id": f"{display_name}#{slide_number}", "file": display_name, "slide": slide_number,
@@ -401,8 +379,59 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
             "project_key": best_project.get("key", "") if project_title else "",
             "project_title": project_title, "score": round(best_score, 3),
             "current": section_values["current"], "next": section_values["next"], "issues": section_values["issues"],
+            "section_presence": {
+                section_key: any(_is_section_label(entry["text"], section_key) for entry in entries)
+                for section_key in SECTION_DISPLAY
+            },
         })
     return {"file": display_name, "slide_count": len(presentation.slides), "slides": slides, "issues": issues, "size": {"width": width, "height": height}}
+
+
+def _audit_project_pages(project: dict[str, Any], slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按项目汇总审核续页，避免要求每一页都重复包含完整周报字段。"""
+    if not slides:
+        return []
+    issues = []
+    files = sorted({item["file"] for item in slides})
+    file_label = "、".join(files)
+    page_count = len(slides)
+    reporters = list(dict.fromkeys(item["reporter"] for item in slides if item["reporter"]))
+    expected_reporter = project.get("reporter", "")
+    if not reporters:
+        issues.append({
+            "severity": "warning", "code": "reporter_missing", "label": "汇报人缺失",
+            "file": file_label, "slide": 0, "location": "项目标题区域", "project": project["title"],
+            "detail": f"项目共 {page_count} 页，所有页面的标题都没有包含“汇报人”信息。",
+            "suggestion": "按模板补充汇报人。",
+        })
+    else:
+        mismatched = [
+            reporter for reporter in reporters
+            if _normalize_title(reporter) != _normalize_title(expected_reporter)
+        ]
+        if mismatched:
+            issues.append({
+                "severity": "warning", "code": "reporter_mismatch", "label": "汇报人不一致",
+                "file": file_label, "slide": 0, "location": "项目标题区域", "project": project["title"],
+                "detail": f"项目共 {page_count} 页，源文件汇报人为“{'、'.join(mismatched)}”，模板为“{expected_reporter}”。",
+                "suggestion": "以模板中的汇报人为准，并在审核结果确认。",
+            })
+
+    for section_key, section_label in SECTION_DISPLAY.items():
+        section_exists = any(item["section_presence"].get(section_key) for item in slides)
+        has_content = any(item[section_key] for item in slides)
+        if not section_exists or (section_key != "issues" and not has_content):
+            issues.append({
+                "severity": "warning", "code": "section_missing", "label": "内容字段缺失",
+                "file": file_label, "slide": 0, "location": f"{section_label}项目汇总区域", "project": project["title"],
+                "detail": (
+                    f"项目共 {page_count} 页，所有页面均未识别到“{section_label.rstrip('：')}”字段。"
+                    if not section_exists
+                    else f"项目共 {page_count} 页，“{section_label.rstrip('：')}”字段没有有效内容。"
+                ),
+                "suggestion": "按项目周报模板补充该字段；没有问题时填写“无”。",
+            })
+    return issues
 
 
 def _is_generated_artifact(display_name: str) -> bool:
@@ -414,15 +443,15 @@ def _project_result(project: dict[str, Any], slides: list[dict[str, Any]], issue
     current = "\n".join(dict.fromkeys(item["current"] for item in slides if item["current"]))
     next_plan = "\n".join(dict.fromkeys(item["next"] for item in slides if item["next"]))
     problems = "\n".join(dict.fromkeys(item["issues"] for item in slides if item["issues"])) or "无"
+    reporter = next((item["reporter"] for item in slides if item["reporter"]), project["reporter"])
     project_issues = [item for item in issues if item.get("project") == project["title"] or item.get("project") == project.get("key")]
     has_error = any(item["severity"] == "error" for item in project_issues)
     has_warning = any(item["severity"] == "warning" for item in project_issues)
-    status = "需处理" if has_error or not slides else "待确认" if has_warning else "通过"
+    status = "需处理" if has_error else "待确认" if has_warning else "通过"
     if not slides:
-        project_issues.append({"severity": "error", "code": "project_missing", "label": "项目页缺失", "file": "", "slide": 0, "location": "项目清单", "project": project["title"], "detail": "压缩包中没有找到该项目的有效内容页。", "suggestion": "补充对应项目周报 PPTX。"})
-        status = "需处理"
+        current = next_plan = problems = "无"
     return {
-        "id": project["id"], "key": project["key"], "title": project["title"], "reporter": project["reporter"],
+        "id": project["id"], "key": project["key"], "title": project["title"], "reporter": reporter,
         "template_slide": project.get("template_slide"),
         "status": status, "source_kind": source_kind, "slides": slides, "source_files": sorted({item["file"] for item in slides}),
         "current": current, "next": next_plan, "issues": problems, "checks": project_issues,
@@ -463,21 +492,14 @@ def process_weekly_report(
         else:
             all_issues.append({"severity": "warning", "code": "unmatched_slide", "label": "项目页未对应", "file": slide["file"], "slide": slide["slide"], "location": "标题区域", "project": "", "detail": f"源标题“{slide['title']}”未匹配到模板项目。", "suggestion": "确认是否应新增模板项目，或修正源 PPT 标题。"})
 
+    for project in expected:
+        all_issues.extend(_audit_project_pages(project, by_key.get(project["key"], [])))
+
     deck_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "项目周报") for item in deck_projects]
     meeting_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "周例会") for item in meeting_projects]
-    existing_missing = {(item.get("project"), item.get("code")) for item in all_issues}
-    for project in deck_results + meeting_results:
-        for issue in project["checks"]:
-            marker = (issue.get("project"), issue.get("code"))
-            if issue.get("code") == "project_missing" and marker not in existing_missing:
-                all_issues.append(issue)
-                existing_missing.add(marker)
     for project in deck_results + meeting_results:
         if len(project["source_files"]) > 1:
             all_issues.append({"severity": "warning", "code": "multiple_sources", "label": "多个源文件合并", "file": "、".join(project["source_files"]), "slide": 0, "location": project["title"], "project": project["title"], "detail": "同一项目来自多个 PPT 文件，系统按源文件和页码顺序合并。", "suggestion": "确认这些文件是否是同一项目的不同内容页。"})
-
-    if not any(slide["project_key"] == _canonical_title("本周市场工作成果与计划") for slide in all_slides):
-        all_issues.append({"severity": "warning", "code": "market_missing", "label": "市场周报缺失", "file": "", "slide": 0, "location": "部门周例会项目清单", "project": "本周市场工作成果与计划", "detail": "周例会模板包含市场工作项目，但源 PPT 中没有对应内容页。", "suggestion": "补充张珂珂的市场工作周报。"})
 
     for parsed in parsed_files:
         if parsed["file"] and not parsed["slides"] and not _is_generated_artifact(parsed["file"]):
@@ -790,10 +812,20 @@ def _generation_qa(
             for slide in group["slides"]:
                 content_total += 1
                 title, reporter, _ = _slide_title(_flatten_shapes(slide.shapes))
-                if _canonical_title(title) == group["project"]["key"] and _normalize_title(reporter) == _normalize_title(group["project"]["reporter"]):
+                if group.get("preserve_source_title"):
+                    expected_title, expected_reporter, _ = _slide_title(_flatten_shapes(group["source_slide"].shapes))
+                    title_ok = _normalize_title(title) == _normalize_title(expected_title)
+                    reporter_ok = _normalize_title(reporter) == _normalize_title(expected_reporter)
+                else:
+                    title_ok = _canonical_title(title) == group["project"]["key"]
+                    reporter_ok = _normalize_title(reporter) == _normalize_title(group["project"]["reporter"])
+                if title_ok and reporter_ok:
                     content_ok += 1
                 else:
-                    _replace_title(slide, group["project"]["title"], group["project"]["reporter"])
+                    if group.get("preserve_source_title"):
+                        _replace_title(slide, expected_title, expected_reporter)
+                    else:
+                        _replace_title(slide, group["project"]["title"], group["project"]["reporter"])
                     repairs += 1
             source_entries = {
                 entry["path"]: entry for entry in _flatten_shapes(group["source_slide"].shapes)
@@ -824,11 +856,11 @@ def _generation_qa(
                         _set_page_chunks(slide, group["chunks"], page_index)
                     repairs += 1
 
-            template_slide = group.get("template_slide")
-            template_entries = [
-                entry for entry in _flatten_shapes(template_slide.shapes)
+            style_reference = group.get("style_reference") or group.get("template_slide")
+            reference_entries = [
+                entry for entry in _flatten_shapes(style_reference.shapes)
                 if getattr(entry["shape"], "has_text_frame", False)
-            ] if template_slide is not None else []
+            ] if style_reference is not None else []
             for slide in group["slides"]:
                 for entry in _flatten_shapes(slide.shapes):
                     shape = entry["shape"]
@@ -844,15 +876,13 @@ def _generation_qa(
                                 "detail": "自动缩放和分页后，文本量仍超过当前文本框估算容量。",
                                 "suggestion": "建议人工检查该页文本框实际显示效果。",
                             })
-                        template_entry = _matching_template_entry(entry, template_entries) if template_entries else None
-                        if template_entry is not None:
+                        reference_entry = _matching_template_entry(entry, reference_entries) if reference_entries else None
+                        if reference_entry is not None:
                             style_total += 1
-                            if _text_style_matches(shape, template_entry["shape"]):
+                            if _text_style_matches(shape, reference_entry["shape"]):
                                 style_ok += 1
                             else:
-                                _copy_text_style(shape, template_entry["shape"])
-                                if _text_role(entry["text"]) == "body":
-                                    _fit_body_font(shape)
+                                _copy_text_style(shape, reference_entry["shape"])
                                 repairs += 1
                     layout_total += 1
                     if entry["left"] >= 0 and entry["top"] >= 0 and entry["left"] + entry["width"] <= presentation.slide_width and entry["top"] + entry["height"] <= presentation.slide_height:
@@ -908,6 +938,69 @@ def _replace_title(slide, title: str, reporter: str) -> None:
         _clear_paragraph_runs(extra, "")
 
 
+def _fill_missing_project_sections(slide) -> None:
+    """在缺少源文件时保留项目模板页，并在各内容区域填入“无”。"""
+    entries = _flatten_shapes(slide.shapes)
+    for section_key in SECTION_DISPLAY:
+        labels = [entry for entry in entries if _is_section_label(entry["text"], section_key)]
+        if not labels:
+            continue
+        label = min(labels, key=lambda entry: (entry["top"], entry["left"]))
+        next_tops = [
+            entry["top"] for entry in entries
+            if entry is not label and entry["top"] > label["top"] + 1000 and _is_section_label(entry["text"])
+        ]
+        bottom = min(next_tops) if next_tops else 10**10
+        bodies = [
+            entry for entry in entries
+            if entry is not label
+            and getattr(entry["shape"], "has_text_frame", False)
+            and entry["left"] >= label["left"] + label["width"]
+            and entry["top"] >= label["top"] - 100000
+            and entry["top"] < bottom
+            and not _is_section_label(entry["text"])
+            and not PPT_HEADING.match(entry["text"])
+        ]
+        if not bodies:
+            continue
+        body = min(bodies, key=lambda entry: (abs(entry["top"] - label["top"]), entry["left"]))["shape"]
+        body.text_frame.vertical_anchor = MSO_ANCHOR.TOP
+        paragraph = body.text_frame.paragraphs[0]
+        _clear_paragraph_runs(paragraph, "无")
+        paragraph.alignment = PP_ALIGN.LEFT
+        ppr = paragraph._p.get_or_add_pPr()
+        for child in list(ppr):
+            if child.tag.rsplit("}", 1)[-1] in {"buNone", "buChar", "buAutoNum", "buBlip", "buFont"}:
+                ppr.remove(child)
+        ppr.set("marL", "285750")
+        ppr.set("indent", "-285750")
+        ppr.append(ppr.makeelement(qn("a:buChar"), {"char": "•"}))
+        for extra in body.text_frame.paragraphs[1:]:
+            _clear_paragraph_runs(extra, "")
+
+
+def _normalize_source_project_layout(slide) -> None:
+    """统一源项目页正文的左上对齐和项目符号，避免沿用错误的居中属性。"""
+    for entry in _flatten_shapes(slide.shapes):
+        shape = entry["shape"]
+        if not entry["text"] or not getattr(shape, "has_text_frame", False):
+            continue
+        if PPT_HEADING.match(entry["text"]) or _is_section_label(entry["text"]):
+            continue
+        shape.text_frame.vertical_anchor = MSO_ANCHOR.TOP
+        for paragraph in shape.text_frame.paragraphs:
+            if not paragraph.text.strip():
+                continue
+            paragraph.alignment = PP_ALIGN.LEFT
+            ppr = paragraph._p.get_or_add_pPr()
+            for child in list(ppr):
+                if child.tag.rsplit("}", 1)[-1] in {"buChar", "buAutoNum", "buBlip", "buNone", "buFont"}:
+                    ppr.remove(child)
+            ppr.set("marL", "285750")
+            ppr.set("indent", "-285750")
+            ppr.append(ppr.makeelement(qn("a:buChar"), {"char": "•"}))
+
+
 def build_weekly_presentation(
     result: dict[str, Any],
     source_lookup: dict[str, Path],
@@ -925,8 +1018,7 @@ def build_weekly_presentation(
             _clear_paragraph_runs(paragraph, DATE_PATTERN.sub(cover_text, _text(shape.text)))
 
     placeholder_numbers = sorted(_project_slide_numbers(presentation), reverse=True)
-    for slide_number in placeholder_numbers:
-        _remove_slide(presentation, presentation.slides[slide_number - 1])
+    placeholder_slides = [presentation.slides[slide_number - 1] for slide_number in placeholder_numbers]
     outro_index = len(presentation.slides) - 1
     source_cache: dict[str, Presentation] = {}
     style_presentation = Presentation(template)
@@ -946,42 +1038,44 @@ def build_weekly_presentation(
         outro_index += 1
 
     for project in result["projects"]:
+        template_slide = style_slides.get(project["key"])
+        if not project["slides"]:
+            if template_slide is None:
+                continue
+            empty_slide = _clone_source_slide(presentation, template_slide)
+            _replace_title(empty_slide, project["title"], project["reporter"])
+            _fill_missing_project_sections(empty_slide)
+            place_before_outro(empty_slide)
+            generated_groups.append({
+                "project": project,
+                "source": {"file": "", "slide": 0},
+                "source_slide": template_slide,
+                "template_slide": template_slide,
+                "style_reference": empty_slide,
+                "chunks": {},
+                "slides": [empty_slide],
+            })
+            continue
         for source in project["slides"]:
             display_name = source["file"]
             if display_name not in source_cache:
                 source_cache[display_name] = Presentation(source_lookup[display_name])
             source_slide = source_cache[display_name].slides[source["slide"] - 1]
             cloned = _clone_source_slide(presentation, source_slide)
-            template_slide = style_slides.get(project["key"])
-            if template_slide is not None:
-                _apply_template_text_format(cloned, template_slide)
-            _replace_title(cloned, project["title"], project["reporter"])
-            chunks = _overflow_chunks(cloned)
-            page_count = max((len(values) for values in chunks.values()), default=1)
-            generated_pages = []
-            for page_index in range(page_count):
-                if page_index:
-                    continuation = _clone_source_slide(presentation, source_slide)
-                    if template_slide is not None:
-                        _apply_template_text_format(continuation, template_slide)
-                    _replace_title(continuation, project["title"], project["reporter"])
-                    cloned = continuation
-                _set_page_chunks(cloned, chunks, page_index)
-                if template_slide is not None:
-                    _apply_template_text_format(cloned, template_slide)
-                for entry in _flatten_shapes(cloned.shapes):
-                    if entry["text"] and _text_role(entry["text"]) == "body":
-                        _fit_body_font(entry["shape"])
-                place_before_outro(cloned)
-                generated_pages.append(cloned)
+            _normalize_source_project_layout(cloned)
+            place_before_outro(cloned)
             generated_groups.append({
                 "project": project,
                 "source": source,
                 "source_slide": source_slide,
                 "template_slide": template_slide,
-                "chunks": chunks,
-                "slides": generated_pages,
+                "style_reference": cloned,
+                "preserve_source_title": True,
+                "chunks": {},
+                "slides": [cloned],
             })
+    for placeholder_slide in placeholder_slides:
+        _remove_slide(presentation, placeholder_slide)
     qa = _generation_qa(presentation, generated_groups, progress_callback=progress_callback)
     result["qa"] = qa
     result["issues"].extend(qa["issues"])
