@@ -459,13 +459,16 @@ async function pollWeekly(jobId) {
 function renderWeekly(source, result) {
   workspace.hidden = false; downloadButton.disabled = false;
   document.getElementById('sourceName').textContent = source || '周报 ZIP/目录';
-  document.getElementById('summaryNotice').textContent = `报告日期：${result.report_date || '—'}；已处理 ${result.stats?.total_rows || 0} 条 Jira 记录，异常 ${result.stats?.anomaly_count || 0} 条。`;
+  const warnings = result.warnings || [];
+  const warningText = warnings.length ? `；提醒：${warnings.map(item => item.detail).join('；')}` : '';
+  document.getElementById('summaryNotice').textContent = `报告日期：${result.report_date || '—'}；已处理 ${result.stats?.total_rows || 0} 条 Jira 记录，异常 ${result.stats?.anomaly_count || 0} 条${warningText}。`;
+  document.getElementById('summaryNotice').className = `notice${warnings.length ? ' is-warn' : ''}`;
   document.getElementById('resultsCopy').textContent = '当前周 23 人统计、延期/挂起明细和异常清单。';
   document.getElementById('totalStat').textContent = result.stats?.total_rows || 0;
   document.getElementById('includedStat').textContent = result.summary?.length || 0;
-  document.getElementById('pendingStat').textContent = result.stats?.anomaly_count || 0;
+  document.getElementById('pendingStat').textContent = result.stats?.warning_count || 0;
   document.getElementById('mismatchStat').textContent = result.report_date || '—';
-  renderWeeklySummary(result.summary || []); renderWeeklyDetails(result.sections || {}); renderAnomalies(result.anomalies || []); renderMapping({来源文件: {header: Object.values(result.source_files || {}).join('、'), column: '', found: true}});
+  renderWeeklySummary(result.summary || []); renderWeeklyDetails(result.sections || {}); renderAnomalies([...warnings, ...(result.anomalies || [])]); renderMapping({来源文件: {header: Object.values(result.source_files || {}).join('、'), column: '', found: true}});
   showView('summaryView', document.querySelector('.tab[data-view="summaryView"]'));
 }
 

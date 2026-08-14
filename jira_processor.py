@@ -66,6 +66,8 @@ WEEKLY_FILE_KEYS = {
     "new_defects": "本周新增缺陷", "fixed_defects": "本周已修复缺陷",
     "pending_tasks": "待处理任务", "pending_defects": "总挂起缺陷数",
 }
+WEEKLY_REQUIRED_FIELDS = ("issue_key", "status", "summary")
+WEEKLY_FIELD_LABELS = {"issue_key": "问题关键字", "status": "状态", "summary": "概要"}
 
 FIELD_ALIASES = {
     "issue_key": ["问题关键字", "问题键", "issuekey", "key"],
@@ -160,6 +162,21 @@ def _field_mapping(headers: list[str], indexes: dict[str, int | None], module_in
         "found": bool(module_indexes),
     }
     return mapping
+
+
+def _daily_summary_items(value: Any) -> list[tuple[str, str]]:
+    """从每日汇总表的“任务【状态】”文本中还原任务字段。"""
+    items = []
+    for text in re.split(r"(?:；|;)\s*(?:\r?\n)|\r?\n", _text(value)):
+        text = text.strip()
+        if not text:
+            continue
+        match = re.match(r"^(.*?)【([^】]+)】$", text)
+        if match:
+            items.append((match.group(1).strip(), match.group(2).strip()))
+        else:
+            items.append((text, "未填写"))
+    return items
 
 
 def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback = None) -> dict[str, Any]:
@@ -363,14 +380,24 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
 
         indexes = {field: _find_index(headers, aliases) for field, aliases in FIELD_ALIASES.items()}
         missing = [field for field in ("status", "summary") if indexes[field] is None]
-        if missing:
+        is_compact_daily_summary = (
+            bool(missing)
+            and _norm_header(headers[0]) in {_norm_header("经办人"), _norm_header("汇总人员")}
+        )
+        if missing and not is_compact_daily_summary:
             labels = {"status": "状态", "summary": "概要"}
             raise ValueError("缺少每日处理必需字段：" + "、".join(labels[field] for field in missing))
-        if all(indexes[field] is None for field in ("developer", "assignee", "reporter")):
+        if not is_compact_daily_summary and all(indexes[field] is None for field in ("developer", "assignee", "reporter")):
             raise ValueError("缺少每日处理人员字段：开发人员、经办人或报告人")
 
         mapping = _field_mapping(unique_headers, indexes, _module_indexes(headers))
-        _notify(progress_callback, "识别字段", 18, "已识别状态、概要和人员归属字段")
+        if is_compact_daily_summary:
+            mapping["assignee"] = {"header": headers[0], "column": "A", "found": True}
+            mapping["status"] = {"header": "合并任务文本（任务尾部状态）", "column": "B", "found": True}
+            mapping["summary"] = {"header": "合并任务文本", "column": "B", "found": True}
+            _notify(progress_callback, "识别字段", 18, "已识别每日汇总文本中的状态、概要和经办人")
+        else:
+            _notify(progress_callback, "识别字段", 18, "已识别状态、概要和人员归属字段")
 
         records: list[dict[str, Any]] = []
         for row_number, cells in enumerate(rows, start=2):
@@ -378,51 +405,51 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
             if not any(value not in (None, "") for value in values):
                 continue
             get = lambda field: values[indexes[field]] if indexes[field] is not None and indexes[field] < len(values) else None
-            assignee = _text(get("assignee"))
-            developer = _text(get("developer"))
-            reporter = _text(get("reporter"))
-            status_raw = _text(get("status"))
-            status = STATUS_MAP.get(status_raw, status_raw or "未填写")
-            summary = _text(get("summary"))
-            if developer:
-                summary_person = developer
-                summary_source = "开发人员"
-                consistency = "相同" if not assignee or assignee == developer else "不同"
-                summary_note = "" if consistency == "相同" else "经办人与开发人员不一致，按开发人员汇总"
-            elif assignee:
-                summary_person = assignee
-                summary_source = "经办人"
-                consistency = "缺少开发人员"
-                summary_note = "开发人员为空，按经办人汇总"
-            elif reporter:
-                summary_person = reporter
-                summary_source = "报告人"
-                consistency = "缺少开发人员和经办人"
-                summary_note = "开发人员和经办人均为空，按报告人汇总"
-            else:
-                summary_person = "未分配"
-                summary_source = "未分配"
-                consistency = "人员缺失"
-                summary_note = "开发人员、经办人和报告人均为空，未纳入每日汇总"
-            included = bool(developer or assignee or reporter)
-            records.append({
-                "source_row": row_number,
-                "issue_key": _text(get("issue_key")) or f"第{row_number}行",
-                "status_raw": status_raw,
-                "status": status,
-                "summary": summary,
-                "assignee": assignee,
-                "reporter": reporter,
-                "developer": developer,
-                "summary_person": summary_person,
-                "summary_source": summary_source,
-                "summary_note": summary_note,
-                "module": "",
-                "planned_completion": _date_text(get("planned_completion")),
-                "consistency": consistency,
-                "included": included,
-                "summary_text": f"{summary}【{status}】",
-            })
+            compact_items = _daily_summary_items(values[1] if len(values) > 1 else None) if is_compact_daily_summary else [(_text(get("summary")), _text(get("status")))]
+            for summary, status_raw in compact_items:
+                assignee = _text(values[0]) if is_compact_daily_summary else _text(get("assignee"))
+                developer = "" if is_compact_daily_summary else _text(get("developer"))
+                reporter = "" if is_compact_daily_summary else _text(get("reporter"))
+                status = STATUS_MAP.get(status_raw, status_raw or "未填写")
+                if developer:
+                    summary_person = developer
+                    summary_source = "开发人员"
+                    consistency = "相同" if not assignee or assignee == developer else "不同"
+                    summary_note = "" if consistency == "相同" else "经办人与开发人员不一致，按开发人员汇总"
+                elif assignee:
+                    summary_person = assignee
+                    summary_source = "经办人"
+                    consistency = "缺少开发人员"
+                    summary_note = "开发人员为空，按经办人汇总"
+                elif reporter:
+                    summary_person = reporter
+                    summary_source = "报告人"
+                    consistency = "缺少开发人员和经办人"
+                    summary_note = "开发人员和经办人均为空，未纳入每日汇总"
+                else:
+                    summary_person = "未分配"
+                    summary_source = "未分配"
+                    consistency = "人员缺失"
+                    summary_note = "开发人员、经办人和报告人均为空，未纳入每日汇总"
+                included = bool(developer or assignee or reporter)
+                records.append({
+                    "source_row": row_number,
+                    "issue_key": _text(get("issue_key")) or f"第{row_number}行",
+                    "status_raw": status_raw,
+                    "status": status,
+                    "summary": summary,
+                    "assignee": assignee,
+                    "reporter": reporter,
+                    "developer": developer,
+                    "summary_person": summary_person,
+                    "summary_source": summary_source,
+                    "summary_note": summary_note,
+                    "module": "",
+                    "planned_completion": _date_text(get("planned_completion")),
+                    "consistency": consistency,
+                    "included": included,
+                    "summary_text": f"{summary}【{status}】",
+                })
 
         _notify(progress_callback, "确定人员归属", 48, f"已读取 {len(records)} 条任务")
         roster_order = {name: index + 1 for index, name in enumerate(DEFAULT_ROSTER)}
@@ -484,8 +511,8 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
         workbook.close()
 
 
-def discover_weekly_files(paths: list[str | Path]) -> dict[str, Path]:
-    """按 Jira 导出文件名识别周报六类来源，忽略 Excel 临时锁定文件。"""
+def discover_weekly_files(paths: list[str | Path]) -> dict[str, Path | None]:
+    """按 Jira 导出文件名识别周报六类来源，缺失来源以空数据继续处理。"""
     matches: dict[str, list[Path]] = {key: [] for key in WEEKLY_FILE_KEYS}
     for raw_path in paths:
         path = Path(raw_path)
@@ -499,11 +526,7 @@ def discover_weekly_files(paths: list[str | Path]) -> dict[str, Path]:
     if conflicts:
         detail = "；".join(f"{key}: {', '.join(item.name for item in items)}" for key, items in conflicts.items())
         raise ValueError(f"周报文件存在多个候选文件：{detail}")
-    missing = [key for key, items in matches.items() if not items]
-    if missing:
-        labels = "、".join(WEEKLY_FILE_KEYS[key] for key in missing)
-        raise ValueError(f"缺少周报来源文件：{labels}")
-    return {key: items[0] for key, items in matches.items()}
+    return {key: items[0] if items else None for key, items in matches.items()}
 
 
 def _read_weekly_records(path: str | Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -511,20 +534,17 @@ def _read_weekly_records(path: str | Path) -> tuple[list[dict[str, Any]], dict[s
     try:
         worksheet = next((sheet for sheet in workbook.worksheets if sheet.max_row), None)
         if worksheet is None:
-            raise ValueError(f"工作簿为空：{Path(path).name}")
+            return [], {"file": Path(path).name, "sheet": "", "headers": [], "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
         rows = worksheet.iter_rows()
         header_cells = next(rows, None)
         if not header_cells:
-            raise ValueError(f"工作表为空：{Path(path).name}")
+            return [], {"file": Path(path).name, "sheet": worksheet.title, "headers": [], "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
         last = max((index for index, cell in enumerate(header_cells) if _text(cell.value)), default=-1)
         if last < 0:
-            raise ValueError(f"首行没有字段名：{Path(path).name}")
+            return [], {"file": Path(path).name, "sheet": worksheet.title, "headers": [], "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
         headers = [_text(cell.value) or f"列{index + 1}" for index, cell in enumerate(header_cells[:last + 1])]
         indexes = {field: _find_index(headers, aliases) for field, aliases in FIELD_ALIASES.items()}
-        missing = [field for field in ("issue_key", "status", "summary") if indexes[field] is None]
-        if missing:
-            labels = {"issue_key": "问题关键字", "status": "状态", "summary": "概要"}
-            raise ValueError(f"{Path(path).name} 缺少必需字段：{'、'.join(labels[field] for field in missing)}")
+        missing = [field for field in WEEKLY_REQUIRED_FIELDS if indexes[field] is None]
         module_indexes = _module_indexes(headers)
         records = []
         for row_number, cells in enumerate(rows, start=2):
@@ -546,7 +566,7 @@ def _read_weekly_records(path: str | Path) -> tuple[list[dict[str, Any]], dict[s
                 "delivery_date": get("delivery_date"), "resolution": resolution, "issue_type": issue_type,
                 "planned_completion": get("planned_completion"),
             })
-        return records, {"file": Path(path).name, "sheet": worksheet.title, "headers": headers}
+        return records, {"file": Path(path).name, "sheet": worksheet.title, "headers": headers, "empty": False, "missing_fields": missing}
     finally:
         workbook.close()
 
@@ -590,13 +610,26 @@ def _weekly_display_person(value: Any) -> str:
     return WEEKLY_NAME_MAP.get(text, text)
 
 
-def process_weekly_statistics(sources: dict[str, str | Path], progress_callback: ProgressCallback = None) -> dict[str, Any]:
+def process_weekly_statistics(sources: dict[str, str | Path | None], progress_callback: ProgressCallback = None) -> dict[str, Any]:
     """处理当前周六类 Jira 导出，生成 23 人周报统计及明细。"""
     all_records: dict[str, list[dict[str, Any]]] = {}
     metadata = {}
+    warnings: list[dict[str, str]] = []
     for index, (key, path) in enumerate(sources.items(), start=1):
+        source_label = WEEKLY_FILE_KEYS[key]
+        if path is None:
+            all_records[key] = []
+            metadata[key] = {"file": "", "sheet": "", "headers": [], "missing": True, "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
+            warnings.append({"source": source_label, "issue_key": "", "label": "来源文件缺失", "detail": f"未上传“{source_label}”，相关统计已按 0 处理。"})
+            continue
         _notify(progress_callback, "读取周报文件", index * 10, f"正在读取 {Path(path).name}")
         all_records[key], metadata[key] = _read_weekly_records(path)
+        if metadata[key]["empty"]:
+            warnings.append({"source": source_label, "issue_key": "", "label": "来源内容为空", "detail": f"“{Path(path).name}”没有可读取内容，相关统计已按 0 处理。"})
+        missing_fields = metadata[key]["missing_fields"]
+        if missing_fields and not metadata[key]["empty"]:
+            labels = "、".join(WEEKLY_FIELD_LABELS[field] for field in missing_fields)
+            warnings.append({"source": source_label, "issue_key": "", "label": "字段缺失", "detail": f"“{Path(path).name}”缺少 {labels}，对应值已按空处理。"})
     # 已完成任务导出通常不带人员和问题类型，按问题关键字回填新增任务中的归属字段。
     new_task_lookup = {record["issue_key"]: record for record in all_records["new_tasks"]}
     for record in all_records["completed_tasks"]:
@@ -662,7 +695,7 @@ def process_weekly_statistics(sources: dict[str, str | Path], progress_callback:
     classify_pending("pending_defects", "pending_defect_count", "", "pending_defects")
     classify_pending("pending_tasks", "", "delayed_task_count", "delayed_tasks", True)
     classify_pending("pending_tasks", "", "pending_task_count", "pending_tasks")
-    return {"ok": True, "report_date": report_date.isoformat(), "sources": metadata, "summary": summary, "sections": sections, "anomalies": anomalies, "stats": {"total_rows": sum(len(rows) for rows in all_records.values()), "anomaly_count": len(anomalies)}}
+    return {"ok": True, "report_date": report_date.isoformat(), "sources": metadata, "summary": summary, "sections": sections, "warnings": warnings, "anomalies": anomalies, "stats": {"total_rows": sum(len(rows) for rows in all_records.values()), "warning_count": len(warnings), "anomaly_count": len(anomalies)}}
 
 
 def export_weekly_statistics_xlsx(result: dict[str, Any], target: str | Path) -> None:
@@ -756,7 +789,7 @@ def export_weekly_statistics_xlsx(result: dict[str, Any], target: str | Path) ->
 
     anomaly_sheet = workbook.create_sheet("异常清单")
     anomaly_sheet.append(["来源", "问题关键字", "异常类型", "说明"])
-    for item in result["anomalies"]:
+    for item in [*result.get("warnings", []), *result["anomalies"]]:
         anomaly_sheet.append([item.get("source", ""), item.get("issue_key", ""), item.get("label", ""), item.get("detail", "")])
     notes_sheet = workbook.create_sheet("处理说明")
     notes_sheet.append(["项目", "内容"])

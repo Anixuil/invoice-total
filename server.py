@@ -181,12 +181,25 @@ async def generate_reimbursement(file: UploadFile = File(...)):
 
 def _safe_name(raw_name: str) -> str:
     """只保留用户可见的文件名，避免把上传路径带入结果。"""
-    return Path(raw_name.replace("\\", "/")).name.strip() or "unnamed"
+    return Path(_repair_filename_encoding(raw_name).replace("\\", "/")).name.strip() or "unnamed"
+
+
+def _repair_filename_encoding(raw_name: str) -> str:
+    """修复 multipart 客户端把 UTF-8 文件名错误按 Latin-1 传递造成的乱码。"""
+    if not isinstance(raw_name, str):
+        return str(raw_name)
+    try:
+        repaired = raw_name.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return raw_name
+    # 只有结果明显改善时才替换，避免破坏本来就是 Latin-1 的文件名。
+    mojibake_markers = ("Ã", "Â", "Ä", "Å", "Æ", "Ç", "Ð", "Ñ", "Ò", "Ó", "Ô", "Õ", "Ö", "Ø", "Ù", "Ú", "Û", "Ü", "Ý", "à", "á", "â", "ã", "ä", "å", "æ", "ç", "è", "é", "ê", "ë", "ì", "í", "î", "ï", "ð", "ñ", "ò", "ó", "ô", "õ", "ö", "÷", "ø", "ù", "ú", "û", "ü", "ý", "þ")
+    return repaired if any(marker in raw_name for marker in mojibake_markers) else raw_name
 
 
 def _safe_archive_member_name(raw_name: str) -> str:
     """规范化 ZIP 成员名；拒绝绝对路径和 ..，防止路径穿越。"""
-    normalized = raw_name.replace("\\", "/")
+    normalized = _repair_filename_encoding(raw_name).replace("\\", "/")
     path = PurePosixPath(normalized)
     if path.is_absolute() or any(part == ".." for part in path.parts):
         raise ValueError("压缩包包含不安全的目录路径")
@@ -451,7 +464,7 @@ async def upload(background_tasks: BackgroundTasks, files: list[UploadFile] = Fi
                     add_result({"file": name, "ok": False, "error": "仅支持 PDF 或 ZIP 文件"}, entry)
                     continue
 
-                with zipfile.ZipFile(path) as archive:
+                with zipfile.ZipFile(path, metadata_encoding="gbk") as archive:
                     infos, manifest = _archive_pdf_infos(archive)
                     source["entries"] = manifest
                     source["pdf_count"] = len(infos)
@@ -575,7 +588,8 @@ def _weekly_jira_job_response(job: dict) -> dict:
 def _extract_weekly_jira_zip(archive_path: Path, target_dir: Path) -> list[Path]:
     paths = []
     expanded_size = 0
-    with zipfile.ZipFile(archive_path) as archive:
+    # 国内常见压缩软件生成的 ZIP 未设置 UTF-8 标记，文件名通常使用 GBK。
+    with zipfile.ZipFile(archive_path, metadata_encoding="gbk") as archive:
         for info in archive.infolist():
             if info.is_dir() or not info.filename.lower().endswith(".xlsx"):
                 continue
@@ -616,7 +630,7 @@ def _process_weekly_jira_job(job_id: str) -> None:
         result = process_weekly_statistics(sources, progress_callback=on_progress)
         target = Path(job["directory"]) / "weekly-jira-statistics.xlsx"
         export_weekly_statistics_xlsx(result, target)
-        result["source_files"] = {key: path.name for key, path in sources.items()}
+        result["source_files"] = {key: path.name if path else "未上传" for key, path in sources.items()}
         with WEEKLY_JIRA_JOBS_LOCK:
             current = WEEKLY_JIRA_JOBS.get(job_id)
             if current:
