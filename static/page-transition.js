@@ -29,6 +29,7 @@
           event.defaultPrevented ||
           (event.button !== undefined && event.button !== 0) ||
           event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+          link.dataset.hardNavigation === 'true' ||
           link.target === '_blank' ||
           link.origin !== window.location.origin ||
           `${link.pathname}${link.search}${link.hash}` === currentRoutePath
@@ -130,10 +131,12 @@
       replaced = true;
       window.scrollTo(0, 0);
       nextShell.classList.add('route-shell', 'route-entering');
+      if (pushHistory) window.history.pushState({}, '', path);
       if (loadedDocument) {
         executeInlineScripts(loadedDocument);
       }
       bindNavigation(document.querySelector('main.shell'));
+      currentRoutePath = routeKey(path);
       updateActiveNavigation(path);
       routeCache.set(currentRoutePath, {
         content: nextShell,
