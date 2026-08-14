@@ -17,9 +17,9 @@
     --text: #17191c;
     --text-soft: #3f4650;
     --muted: #747b86;
-    --primary: #d94a2b;
-    --primary-bright: #d94a2b;
-    --cyan: #d94a2b;
+    --primary: #2563eb;
+    --primary-bright: #2563eb;
+    --cyan: #2563eb;
     --green: #16845b;
     --yellow: #a16207;
     --red: #c2414b;
@@ -79,7 +79,7 @@
     text-decoration: none;
   }
   .top-nav a:hover { color: var(--text); background: var(--surface-soft); }
-  .top-nav a.is-active { color: var(--primary); background: #fce9e3; }
+  .top-nav a.is-active { color: var(--primary); background: #eef3ff; }
 
   .hero {
     display: grid;
@@ -136,7 +136,7 @@
   .drop-zone {
     position: relative;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto 1fr auto;
     gap: 18px;
     align-items: center;
     min-height: 150px;
@@ -153,8 +153,8 @@
   .drop-zone:hover,
   .drop-zone:focus-visible,
   .drop-zone.is-dragging {
-    border-color: #e79c89;
-    background: #fff5f1;
+    border-color: #8fb0f7;
+    background: #f7f9ff;
   }
   .upload-icon {
     display: grid;
@@ -163,7 +163,7 @@
     height: 62px;
     border-radius: 9px;
     color: var(--primary-bright);
-    background: #fce9e3;
+    background: #eef3ff;
   }
   .upload-icon svg { width: 29px; height: 29px; }
   .upload-copy strong { display: block; font-size: 17px; margin-bottom: 7px; }
@@ -178,38 +178,33 @@
   .select-button {
     position: relative;
     z-index: 1;
-    min-width: 142px;
-    padding: 13px 20px;
-    border: 1px solid #171716;
-    border-radius: 0;
-    color: #171716;
+    padding: 11px 17px;
+    border-radius: 7px;
+    color: #fff;
     font-size: 13px;
     font-weight: 700;
-    background: #fff;
+    background: var(--primary);
   }
-  .select-button:hover { background: #f1eee8; }
+  .select-button:hover { background: #1d4ed8; }
   .select-actions {
     position: relative;
     z-index: 1;
     display: flex;
     gap: 8px;
-    grid-column: 3;
-    justify-self: end;
   }
   .select-actions .folder-button { order: 1; }
   .select-actions .select-button { order: 2; }
   .folder-button {
-    min-width: 128px;
-    padding: 12px 18px;
-    border: 1px solid var(--primary);
-    border-radius: 0;
-    color: #fff;
-    background: var(--primary);
+    padding: 10px 16px;
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    color: var(--text-soft);
+    background: #fff;
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
   }
-  .folder-button:hover { border-color: #b93620; background: #b93620; }
+  .folder-button:hover { border-color: var(--primary); color: var(--primary); }
   .upload-meta {
     display: flex;
     flex-wrap: wrap;
@@ -340,22 +335,19 @@
   }
   .uppercase-amount {
     min-width: 0;
-    padding: 14px 18px;
-    color: #f8f6f1;
-    background: #fff;
     font-family: "STSong", "SimSun", serif;
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 700;
-    letter-spacing: .12em;
     line-height: 1.55;
     letter-spacing: .18em;
     overflow-wrap: anywhere;
   }
-  .uppercase-digit {
-    color: #fff0c7;
-    font-size: 1.12em;
-    font-weight: 800;
-    text-shadow: 0 0 10px rgba(255, 240, 199, .2);
+  .uppercase-amount .amount-digit {
+    display: inline-block;
+    color: var(--primary);
+    font-weight: 900;
+    text-shadow: 0 0 0 currentColor;
+    transform: scale(1.08);
   }
   .copy-button {
     display: inline-flex;
@@ -802,15 +794,14 @@
   .upload-copy strong { font-size: 18px; letter-spacing: -.02em; }
   .select-button {
     padding: 12px 20px;
-    border-color: #171716;
     border-radius: 0;
-    color: #171716;
-    background: #fff;
+    color: #f7f3eb;
+    background: var(--text);
     letter-spacing: .04em;
   }
-  .select-button:hover { background: #f1eee8; }
-  .folder-button { border-radius: 0; border-color: var(--primary); color: #fff; background: var(--primary); }
-  .folder-button:hover { border-color: #b93620; color: #fff; background: #b93620; }
+  .select-button:hover { background: #393834; }
+  .folder-button { border-radius: 0; border-color: var(--primary); color: #f7f3eb; background: var(--primary); }
+  .folder-button:hover { border-color: #ac3423; color: #f7f3eb; background: #ac3423; }
   .upload-meta { border-top: 1px solid var(--line); }
   .meta-dot { border-radius: 0; background: var(--primary); transform: rotate(45deg); }
   .progress-panel { border-radius: 0; background: var(--surface-solid); }
@@ -847,7 +838,7 @@
   .ghost-button:hover { border-color: #f7f3eb; background: #2c2c29; }
   .uppercase-total { position: relative; border-color: #4d4b46; }
   .uppercase-label { color: #aaa69e; }
-  .uppercase-amount { color: #f8f6f1; background: #111110; }
+  .uppercase-amount { color: #f7f3eb; }
   .copy-button.is-copied { border-color: #82b89b; color: #a9d2ba; }
 
   .results-head { margin-top: 40px; padding-bottom: 12px; border-bottom: 2px solid var(--text); }
@@ -923,6 +914,7 @@
     <a class="is-active" href="/">发票核验</a>
     <a href="/jira">Jira 数据处理</a>
     <a href="/weekly-report">周报生成</a>
+    <a href="/reimbursement">报销单生成</a>
   </nav>
   <div id="route-content" class="route-content">
   <header class="hero">
@@ -953,8 +945,8 @@
         <span>选择目录时会递归扫描全部子目录，仅上传其中的 PDF 发票；图片型发票会自动识别二维码金额。</span>
       </div>
       <div class="select-actions">
-        <button class="folder-button" type="button">选择目录</button>
         <button class="select-button" type="button">选择文件</button>
+        <button class="folder-button" type="button">选择文件夹</button>
       </div>
     </div>
     <div id="progress" class="progress-panel" hidden aria-live="polite">
@@ -996,7 +988,7 @@
       </div>
       <div class="uppercase-total" aria-label="价税合计大写金额">
         <span class="uppercase-label">价税合计（大写）</span>
-        <strong class="uppercase-amount" id="uppercaseAmount"><span class="uppercase-digit">零</span>元整</strong>
+        <strong class="uppercase-amount" id="uppercaseAmount">人民币零元整</strong>
         <button class="ghost-button copy-button" id="copyUppercase" type="button" aria-describedby="copyStatus">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <rect x="9" y="9" width="11" height="11" rx="1"/><path d="M15 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4"/>
@@ -1518,8 +1510,16 @@ function fmt(value) {
 
 function updateUppercaseTotal(value) {
   const hasAmount = value !== null && value !== undefined && Number.isFinite(Number(value));
-  const amountText = hasAmount ? moneyToChineseUppercase(value) : '—';
-  uppercaseAmount.innerHTML = amountText.replace(/[零壹贰叁肆伍陆柒捌玖]/g, digit => `<span class="uppercase-digit">${digit}</span>`);
+  if (hasAmount) {
+    const uppercaseText = moneyToChineseUppercase(value).replace(/^人民币/, '');
+    uppercaseAmount.innerHTML = [...uppercaseText].map(character =>
+      '零壹贰叁肆伍陆柒捌玖'.includes(character)
+        ? `<span class="amount-digit">${character}</span>`
+        : character
+    ).join('');
+  } else {
+    uppercaseAmount.textContent = '—';
+  }
   copyUppercase.disabled = !hasAmount;
   copyUppercase.classList.remove('is-copied');
   copyUppercase.querySelector('span').textContent = '复制大写金额';
@@ -1580,9 +1580,7 @@ function moneyToChineseUppercase(value) {
     return text;
   }
 
-  const integerText = convertInteger(integer);
-  const hasTrailingZero = integer > 0 && integer % 10 === 0;
-  let result = `${amount < 0 ? '负' : ''}${integerText}${hasTrailingZero ? digits[0] : ''}元`;
+  let result = `人民币${amount < 0 ? '负' : ''}${convertInteger(integer)}元`;
   if (!jiao && !fen) return result + '整';
   if (jiao) result += digits[jiao] + '角';
   if (fen || jiao) result += (!jiao ? digits[0] : '') + digits[fen] + '分';

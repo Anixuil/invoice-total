@@ -22,6 +22,7 @@ import threading
 import time
 import uuid
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from pathlib import PurePosixPath
 
@@ -45,6 +46,11 @@ from weekly_report_processor import (
     build_weekly_presentation,
     export_weekly_report_xlsx,
     process_weekly_report,
+)
+from reimbursement_generator import (
+    parse_reimbursement_docx,
+    render_reimbursement_pdf,
+    validate_reimbursement_pdf,
 )
 
 app = FastAPI(title="本地文件处理工具", version="1.1.0")
@@ -119,6 +125,56 @@ async def jira_index():
 @app.get("/weekly-report")
 async def weekly_report_index():
     return FileResponse(STATIC / "weekly-report.html")
+
+
+@app.get("/reimbursement")
+async def reimbursement_index():
+    return FileResponse(STATIC / "reimbursement.html")
+
+
+@app.post("/api/reimbursement/generate")
+async def generate_reimbursement(file: UploadFile = File(...)):
+    """Create a reimbursement PDF from the exported DOCX label/value document."""
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="请上传 DOCX 格式的报销信息文件")
+    directory = Path(tempfile.mkdtemp(prefix="reimbursement_"))
+    try:
+        source = directory / "source.docx"
+        size, _ = await _save_upload(file, source, max_size=10 * 1024 * 1024)
+        if size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="报销信息文件不能超过 10MB")
+        try:
+            reimbursement = parse_reimbursement_docx(source)
+            if not reimbursement.fields.get("claimant"):
+                raise ValueError("未识别到“报销人”字段")
+            claimant = reimbursement.fields["claimant"]
+            safe_claimant = "".join(char for char in claimant if char not in '\\/:*?\"<>|').strip()
+            if not safe_claimant:
+                raise ValueError("“报销人”字段不能作为文件名")
+            output = directory / "reimbursement.pdf"
+            generated_at = datetime.now()
+            render_reimbursement_pdf(reimbursement, output, generated_at=generated_at)
+            validation = validate_reimbursement_pdf(reimbursement, output, generated_at)
+            if not validation["ok"]:
+                raise ValueError(f"整体核验未通过：{'、'.join(validation['errors'])}")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"无法解析报销信息：{exc}") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"生成报销单失败：{exc}") from exc
+        cleanup = BackgroundTasks()
+        cleanup.add_task(shutil.rmtree, directory, ignore_errors=True)
+        response = FileResponse(
+            output,
+            media_type="application/pdf",
+            filename=f"报销{safe_claimant}.pdf",
+            background=cleanup,
+        )
+        response.headers["X-Reimbursement-Validation"] = "passed"
+        response.headers["X-Reimbursement-Validation-Checks"] = str(len(validation["checks"]))
+        return response
+    except Exception:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
 
 
 def _safe_name(raw_name: str) -> str:

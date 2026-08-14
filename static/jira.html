@@ -23,11 +23,11 @@
   .top-nav a:hover { color: var(--text); background: var(--surface-soft); }
   .top-nav a.is-active { color: var(--primary); background: #eef3ff; }
   .mode-switch { position: relative; display: inline-flex; gap: 4px; margin-bottom: 22px; padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); isolation: isolate; }
-  .mode-switch::before { position: absolute; inset: 4px auto 4px 4px; width: calc(50% - 6px); border-radius: 6px; background: var(--text); content: ""; transition: transform .22s cubic-bezier(.23, 1, .32, 1); z-index: 0; }
+  .mode-switch::before { position: absolute; inset: 4px auto 4px 4px; width: calc(50% - 6px); border-radius: 6px; background: #eef3ff; content: ""; transition: transform .22s cubic-bezier(.23, 1, .32, 1); z-index: 0; }
   .mode-switch[data-mode="daily"]::before { transform: translateX(calc(100% + 4px)); }
   .mode-switch a { position: relative; z-index: 1; min-width: 72px; padding: 8px 14px; border-radius: 6px; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; text-decoration: none; transition: color .18s ease, transform .16s cubic-bezier(.23, 1, .32, 1); }
-  .mode-switch a:hover { color: var(--text); }
-  .mode-switch a.is-active { color: #fff; }
+  .mode-switch a:hover { color: var(--text); background: var(--surface-soft); }
+  .mode-switch a.is-active { color: var(--primary); }
   .mode-switch a:active { transform: translateY(1px) scale(.985); }
   .hero { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; max-width: 760px; margin-bottom: 24px; }
   .brand-mark { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; color: var(--primary); }
@@ -301,10 +301,11 @@
     <a href="/">发票核验</a>
     <a class="is-active" href="/jira">Jira 数据处理</a>
     <a href="/weekly-report">周报生成</a>
+    <a href="/reimbursement">报销单生成</a>
   </nav>
   <nav class="mode-switch" aria-label="Jira 处理类型">
-    <a id="weeklyModeLink" href="/jira" role="tab" data-hard-navigation="true">周报处理</a>
-    <a id="dailyModeLink" href="/jira?mode=daily" role="tab" data-hard-navigation="true">每日处理</a>
+    <a id="weeklyModeLink" href="/jira" role="tab">周报处理</a>
+    <a id="dailyModeLink" href="/jira?mode=daily" role="tab">每日处理</a>
   </nav>
   <div id="route-content" class="route-content">
 
@@ -349,7 +350,7 @@
 </section>
   </div>
 </main>
-<script src="/static/page-transition.js?v=20260813-4"></script>
+<script src="/static/page-transition.js?v=20260813-2"></script>
 <script>
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
@@ -373,13 +374,6 @@ document.getElementById('dailyModeLink').classList.toggle('is-active', isDaily);
 document.querySelector('.mode-switch').dataset.mode = jiraMode;
 document.getElementById('weeklyModeLink').setAttribute('aria-selected', String(!isDaily));
 document.getElementById('dailyModeLink').setAttribute('aria-selected', String(isDaily));
-document.querySelectorAll('.mode-switch a').forEach(link => {
-  link.addEventListener('click', event => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.href === window.location.href) return;
-    event.preventDefault();
-    window.location.assign(link.href);
-  });
-});
 if (isDaily) {
   document.title = '每日 Jira 处理 · 本地工具';
   document.getElementById('heroEyebrow').textContent = '每日 Jira 数据工具';

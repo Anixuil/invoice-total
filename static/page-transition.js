@@ -125,7 +125,6 @@
 
       nextShell.classList.remove('route-shell', 'route-entering', 'route-ready', 'route-leaving');
       // Jira 页面根据 window.location.search 初始化周报/每日模式，必须先同步路由再执行内联脚本。
-      if (pushHistory) window.history.pushState({}, '', path);
       currentRoutePath = routeKey(path);
       currentContent.replaceWith(nextShell);
       replaced = true;
