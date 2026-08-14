@@ -32,6 +32,7 @@ DOCX_TEMPLATE = BASE / "templates" / "weekly_meeting_template.docx"
 
 PPT_HEADING = re.compile(r"^(.+?)[（(]\s*汇报人\s*[：:]\s*(.+?)[）)]\s*$")
 DATE_PATTERN = re.compile(r"(20\d{2})[年/\.\-](\d{1,2})[月/\.\-](\d{1,2})日?")
+COVER_WEBSITE = "www.kingsware.cn"
 PROJECT_HEADING = re.compile(
     r"^[一二三四五六七八九十百零〇0-9]+[、.．]\s*(.+?)[（(]\s*汇报人\s*[：:]\s*(.+?)[）)]\s*$"
 )
@@ -42,6 +43,11 @@ SECTION_LABELS = {
     "issues": ("本周问题", "问题、风险", "问题"),
 }
 SECTION_DISPLAY = {"current": "本周工作完成情况：", "next": "下周计划：", "issues": "本周问题："}
+PPT_BODY_FONT = "思源黑体CN VF Light"
+PPT_REPORTER_FONT = "思源黑体 CN Bold"
+PPT_ISSUE_COLOR = RGBColor(255, 0, 0)
+PPT_BODY_MARGIN_LEFT = Pt(8)
+PPT_BODY_MARGIN_TOP = Pt(6)
 IGNORED_SLIDE_TITLES = (
     "在建项目整体情况",
     "项目整体情况",
@@ -729,7 +735,8 @@ def _fit_body_font(shape, minimum: int = 9) -> None:
 
 def _format_project_body(shape) -> None:
     """Apply the project-report body formatting."""
-    shape.text_frame.margin_left = 0
+    shape.text_frame.margin_left = PPT_BODY_MARGIN_LEFT
+    shape.text_frame.margin_top = PPT_BODY_MARGIN_TOP
     lines = []
     for paragraph in shape.text_frame.paragraphs:
         value = re.sub(r"^[\s·•]+", "", _text(paragraph.text))
@@ -741,25 +748,81 @@ def _format_project_body(shape) -> None:
         paragraph.alignment = PP_ALIGN.LEFT
         paragraph.level = 0
         for run in paragraph.runs:
-            run.font.name = "思源黑体 CN VF Light"
+            _set_ppt_run_font(run)
 
 
-def _set_project_body_font(shape, font_size: int) -> None:
+def _set_ppt_run_font(run, font_name: str = PPT_BODY_FONT, bold: bool | None = None) -> None:
+    run.font.name = font_name
+    if bold is not None:
+        run.font.bold = bold
+    rpr = run._r.get_or_add_rPr()
+    for tag_name in ("latin", "ea", "cs"):
+        element = rpr.find(qn(f"a:{tag_name}"))
+        if element is None:
+            element = rpr.makeelement(qn(f"a:{tag_name}"), {})
+            rpr.append(element)
+        element.set("typeface", font_name)
+
+
+def _set_project_body_font(shape, font_size: int, color: RGBColor | None = None) -> None:
     for paragraph in shape.text_frame.paragraphs:
         paragraph.alignment = PP_ALIGN.LEFT
         paragraph.level = 0
+        _clear_paragraph_bullets(paragraph)
         for run in paragraph.runs:
-            run.font.name = "思源黑体 CN VF Light"
+            _set_ppt_run_font(run)
             run.font.size = Pt(font_size)
+            if color is not None:
+                run.font.color.rgb = color
 
 
 def _project_body_font_size(shape) -> int:
     _format_project_body(shape)
-    for font_size in (14, 12, 10):
+    for font_size in (14, 12):
         _set_project_body_font(shape, font_size)
         if len(_text_chunks(shape)) <= 1:
             return font_size
-    return 10
+    return 12
+
+
+def _clear_paragraph_bullets(paragraph) -> None:
+    ppr = paragraph._p.get_or_add_pPr()
+    for child in list(ppr):
+        if child.tag.rsplit("}", 1)[-1] in {"buNone", "buChar", "buAutoNum", "buBlip", "buFont"}:
+            ppr.remove(child)
+    ppr.set("marL", "0")
+    ppr.set("indent", "0")
+
+
+def _body_section_key(entries: list[dict[str, Any]], body_entry: dict[str, Any]) -> str | None:
+    labels = sorted(
+        (entry for entry in entries if _is_section_label(entry["text"])),
+        key=lambda entry: (entry["top"], entry["left"]),
+    )
+    candidates = []
+    for index, label in enumerate(labels):
+        if body_entry["left"] < label["left"] + label["width"]:
+            continue
+        next_top = labels[index + 1]["top"] if index + 1 < len(labels) else 10**10
+        if label["top"] - 100000 <= body_entry["top"] < next_top:
+            candidates.append(label)
+    if not candidates:
+        return None
+    label = min(candidates, key=lambda entry: abs(entry["top"] - body_entry["top"]))
+    return next((key for key in SECTION_LABELS if _is_section_label(label["text"], key)), None)
+
+
+def _format_project_slide_bodies(slide) -> None:
+    entries = _flatten_shapes(slide.shapes)
+    for entry in entries:
+        shape = entry["shape"]
+        if not entry["text"] or not getattr(shape, "has_text_frame", False):
+            continue
+        if _text_role(entry["text"]) != "body":
+            continue
+        font_size = _project_body_font_size(shape)
+        color = PPT_ISSUE_COLOR if _body_section_key(entries, entry) == "issues" else None
+        _set_project_body_font(shape, font_size, color)
 
 
 def _shape_capacity_for_font(shape, font_size: float) -> tuple[int, int]:
@@ -787,11 +850,13 @@ def _text_chunks(shape) -> list[str]:
 
 def _overflow_chunks(slide) -> dict[str, list[str]]:
     chunks = {}
-    for entry in _flatten_shapes(slide.shapes):
+    entries = _flatten_shapes(slide.shapes)
+    for entry in entries:
         if not entry["text"] or _text_role(entry["text"]) != "body":
             continue
         font_size = _project_body_font_size(entry["shape"])
-        _set_project_body_font(entry["shape"], font_size)
+        color = PPT_ISSUE_COLOR if _body_section_key(entries, entry) == "issues" else None
+        _set_project_body_font(entry["shape"], font_size, color)
         values = _text_chunks(entry["shape"])
         if len(values) > 1:
             chunks[entry["path"]] = values
@@ -807,6 +872,7 @@ def _set_page_chunks(slide, chunks: dict[str, list[str]], page_index: int) -> No
             entry["shape"].text = values[page_index] if page_index < len(values) else ""
         elif page_index:
             entry["shape"].text = ""
+    _format_project_slide_bodies(slide)
 
 
 def _normalized_content(value: str) -> str:
@@ -886,11 +952,11 @@ def _generation_qa(
                 if title_ok and reporter_ok:
                     content_ok += 1
                 else:
-                    if group.get("preserve_source_title"):
-                        _replace_title(slide, expected_title, expected_reporter)
-                    else:
-                        _replace_title(slide, group["project"]["title"], group["project"]["reporter"])
                     repairs += 1
+                if group.get("preserve_source_title"):
+                    _replace_title(slide, expected_title, expected_reporter)
+                else:
+                    _replace_title(slide, group["project"]["title"], group["project"]["reporter"])
             source_entries = {
                 entry["path"]: entry for entry in _flatten_shapes(group["source_slide"].shapes)
                 if entry["text"] and _text_role(entry["text"]) == "body"
@@ -948,6 +1014,7 @@ def _generation_qa(
                             else:
                                 _copy_text_style(shape, reference_entry["shape"])
                                 repairs += 1
+                        _format_project_slide_bodies(slide)
                     layout_total += 1
                     if entry["left"] >= 0 and entry["top"] >= 0 and entry["left"] + entry["width"] <= presentation.slide_width and entry["top"] + entry["height"] <= presentation.slide_height:
                         layout_ok += 1
@@ -991,15 +1058,30 @@ def _iter_shapes(shapes):
 
 
 def _replace_title(slide, title: str, reporter: str) -> None:
-    expected = f"{title}（汇报人：{reporter or '待补充'}）"
     candidates = [shape for shape in _iter_shapes(slide.shapes) if getattr(shape, "has_text_frame", False) and _text(shape.text)]
     title_shape = next((shape for shape in candidates if PPT_HEADING.match(_text(shape.text))), candidates[0] if candidates else None)
     if not title_shape:
         return
     paragraph = title_shape.text_frame.paragraphs[0]
-    _clear_paragraph_runs(paragraph, expected)
+    _clear_paragraph_runs(paragraph, title)
+    reporter_run = paragraph.add_run()
+    reporter_run.text = f"（汇报人：{reporter or '待补充'}）"
+    reporter_run.font.size = Pt(18)
+    _set_ppt_run_font(reporter_run, PPT_REPORTER_FONT, bold=False)
     for extra in title_shape.text_frame.paragraphs[1:]:
         _clear_paragraph_runs(extra, "")
+
+
+def _finalize_generated_titles(generated_groups: list[dict[str, Any]]) -> None:
+    """Restore reporter styling after QA has copied template text styles."""
+    for group in generated_groups:
+        if group.get("preserve_source_title"):
+            title, reporter, _ = _slide_title(_flatten_shapes(group["source_slide"].shapes))
+        else:
+            title = group["project"]["title"]
+            reporter = group["project"]["reporter"]
+        for slide in group["slides"]:
+            _replace_title(slide, title, reporter)
 
 
 def _fill_missing_project_sections(slide) -> None:
@@ -1028,19 +1110,15 @@ def _fill_missing_project_sections(slide) -> None:
         if not bodies:
             continue
         body = min(bodies, key=lambda entry: (abs(entry["top"] - label["top"]), entry["left"]))["shape"]
+        body.text_frame.margin_left = 0
         body.text_frame.vertical_anchor = MSO_ANCHOR.TOP
         paragraph = body.text_frame.paragraphs[0]
-        _clear_paragraph_runs(paragraph, "无")
+        _clear_paragraph_runs(paragraph, "· 无")
         paragraph.alignment = PP_ALIGN.LEFT
-        ppr = paragraph._p.get_or_add_pPr()
-        for child in list(ppr):
-            if child.tag.rsplit("}", 1)[-1] in {"buNone", "buChar", "buAutoNum", "buBlip", "buFont"}:
-                ppr.remove(child)
-        ppr.set("marL", "285750")
-        ppr.set("indent", "-285750")
-        ppr.append(ppr.makeelement(qn("a:buChar"), {"char": "•"}))
+        _clear_paragraph_bullets(paragraph)
         for extra in body.text_frame.paragraphs[1:]:
             _clear_paragraph_runs(extra, "")
+        _format_project_body(body)
 
 
 def _normalize_source_project_layout(slide) -> None:
@@ -1051,18 +1129,14 @@ def _normalize_source_project_layout(slide) -> None:
             continue
         if PPT_HEADING.match(entry["text"]) or _is_section_label(entry["text"]):
             continue
+        shape.text_frame.margin_left = 0
         shape.text_frame.vertical_anchor = MSO_ANCHOR.TOP
         for paragraph in shape.text_frame.paragraphs:
             if not paragraph.text.strip():
                 continue
             paragraph.alignment = PP_ALIGN.LEFT
-            ppr = paragraph._p.get_or_add_pPr()
-            for child in list(ppr):
-                if child.tag.rsplit("}", 1)[-1] in {"buChar", "buAutoNum", "buBlip", "buNone", "buFont"}:
-                    ppr.remove(child)
-            ppr.set("marL", "285750")
-            ppr.set("indent", "-285750")
-            ppr.append(ppr.makeelement(qn("a:buChar"), {"char": "•"}))
+            _clear_paragraph_bullets(paragraph)
+        _format_project_body(shape)
 
 
 def build_weekly_presentation(
@@ -1077,18 +1151,25 @@ def build_weekly_presentation(
     week_end = datetime.strptime(result["week_end"], "%Y-%m-%d").date()
     cover_text = week_end.strftime("%Y年%m月%d日")
     for shape in presentation.slides[0].shapes:
-        if getattr(shape, "has_text_frame", False) and DATE_PATTERN.search(_text(shape.text)):
+        if not getattr(shape, "has_text_frame", False):
+            continue
+        compact_text = re.sub(r"\s+", "", _text(shape.text)).lower()
+        if compact_text == COVER_WEBSITE:
+            for paragraph in shape.text_frame.paragraphs:
+                _clear_paragraph_runs(paragraph, "")
+            continue
+        if DATE_PATTERN.search(_text(shape.text)):
             paragraph = shape.text_frame.paragraphs[0]
             _clear_paragraph_runs(paragraph, DATE_PATTERN.sub(cover_text, _text(shape.text)))
 
     placeholder_numbers = sorted(_project_slide_numbers(presentation), reverse=True)
     placeholder_slides = [presentation.slides[slide_number - 1] for slide_number in placeholder_numbers]
     outro_index = len(presentation.slides) - 1
-    for slide_number in sorted(
-        [slide_number for slide_number, slide in enumerate(presentation.slides, start=1) if _is_outro_slide(slide)],
-        reverse=True,
-    ):
-        _remove_slide(presentation, presentation.slides[slide_number - 1])
+    outro_slides = [slide for slide in presentation.slides if _is_outro_slide(slide)]
+    # Keep the template's final outro page as the insertion anchor. Remove only
+    # earlier duplicate outro pages so the generated deck always ends with one.
+    for slide in reversed(outro_slides[:-1]):
+        _remove_slide(presentation, slide)
     source_cache: dict[str, Presentation] = {}
     style_presentation = Presentation(template)
     style_slides = {
@@ -1121,6 +1202,7 @@ def build_weekly_presentation(
             empty_slide = _clone_source_slide(presentation, template_slide)
             _replace_title(empty_slide, project["title"], project["reporter"])
             _fill_missing_project_sections(empty_slide)
+            empty_chunks = _overflow_chunks(empty_slide)
             place_before_outro(empty_slide)
             generated_groups.append({
                 "project": project,
@@ -1128,7 +1210,7 @@ def build_weekly_presentation(
                 "source_slide": template_slide,
                 "template_slide": template_slide,
                 "style_reference": empty_slide,
-                "chunks": {},
+                "chunks": empty_chunks,
                 "slides": [empty_slide],
             })
             continue
@@ -1141,6 +1223,7 @@ def build_weekly_presentation(
                 continue
             cloned = _clone_source_slide(presentation, source_slide)
             _normalize_source_project_layout(cloned)
+            source_chunks = _overflow_chunks(cloned)
             place_before_outro(cloned)
             generated_groups.append({
                 "project": project,
@@ -1149,13 +1232,14 @@ def build_weekly_presentation(
                 "template_slide": template_slide,
                 "style_reference": cloned,
                 "preserve_source_title": True,
-                "chunks": {},
+                "chunks": source_chunks,
                 "slides": [cloned],
             })
     for placeholder_slide in placeholder_slides:
         _remove_slide(presentation, placeholder_slide)
     _retain_single_outro_slide(presentation)
     qa = _generation_qa(presentation, generated_groups, progress_callback=progress_callback)
+    _finalize_generated_titles(generated_groups)
     result["qa"] = qa
     result["issues"].extend(qa["issues"])
     result["stats"]["qa_score"] = qa["score"]
