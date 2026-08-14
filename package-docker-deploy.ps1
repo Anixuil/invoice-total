@@ -19,7 +19,8 @@ $requiredFiles = @(
     "server.py",
     "invoice_total.py",
     "jira_processor.py",
-    "weekly_report_processor.py"
+    "weekly_report_processor.py",
+    "reimbursement_generator.py"
 )
 
 $requiredDirectories = @(

@@ -7,10 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt ./
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt
+        --index-url ${PIP_INDEX_URL} \
+    && python -m pip install -r requirements.txt \
+        --index-url ${PIP_INDEX_URL}
 
-COPY invoice_total.py jira_processor.py weekly_report_processor.py server.py ./
+COPY invoice_total.py jira_processor.py weekly_report_processor.py reimbursement_generator.py server.py ./
 COPY static ./static
 COPY templates ./templates
 

@@ -903,12 +903,28 @@ def _process_weekly_job(job_id: str) -> None:
                 current["updated_at"] = time.time()
 
     try:
+        on_progress({"stage": "扫描压缩包", "percent": 5, "detail": "正在检查目录并解压项目 PPTX"})
+        directory = Path(job["directory"])
+        presentation_sources, archive_manifest = _extract_weekly_archive(
+            Path(job["upload_path"]), job["source"], directory, 0
+        )
+        if not presentation_sources:
+            raise ValueError("ZIP 中没有找到可处理的 PPTX 文件")
+        if len(presentation_sources) > 50:
+            raise ValueError("单次最多解析 50 个 PPTX 文件")
+        manifest = [{"path": job["source"], "kind": "archive", "size": job["upload_size"], "status": "已扫描"}, *archive_manifest]
+        with WEEKLY_JOBS_LOCK:
+            current = WEEKLY_JOBS.get(job_id)
+            if not current:
+                return
+            current["presentation_sources"] = [(str(path), name) for path, name in presentation_sources]
+            current["manifest"] = manifest
+        on_progress({"stage": "扫描压缩包", "percent": 10, "detail": f"已发现 {len(presentation_sources)} 个项目 PPTX，准备审核"})
         result = process_weekly_report(
-            [(Path(path), name) for path, name in job["presentation_sources"]],
-            job["manifest"],
+            presentation_sources,
+            manifest,
             progress_callback=on_progress,
         )
-        directory = Path(job["directory"])
         source_lookup = {name: Path(path) for path, name in job["presentation_sources"]}
         output_stem = result["output_stem"]
         suffix = output_stem.removeprefix("项目周报")
@@ -968,32 +984,20 @@ async def weekly_report_import(background_tasks: BackgroundTasks, file: UploadFi
             raise HTTPException(status_code=413, detail="ZIP 文件超过 500MB 限制")
         if size == 0:
             raise HTTPException(status_code=400, detail="ZIP 文件内容为空")
-        presentation_sources, archive_manifest = _extract_weekly_archive(
-            upload_path, display_name, job_directory, 0
-        )
-        manifest = [{"path": display_name, "kind": "archive", "size": size, "status": "已扫描"}, *archive_manifest]
-    except (HTTPException, zipfile.BadZipFile, ValueError) as exc:
+    except HTTPException:
         shutil.rmtree(job_directory, ignore_errors=True)
-        if isinstance(exc, HTTPException):
-            raise
-        detail = "压缩包损坏或格式不受支持" if isinstance(exc, zipfile.BadZipFile) else str(exc)
-        raise HTTPException(status_code=400, detail=detail) from exc
+        raise
     finally:
         await file.close()
-    if not presentation_sources:
-        shutil.rmtree(job_directory, ignore_errors=True)
-        raise HTTPException(status_code=400, detail="ZIP 中没有找到可处理的 PPTX 文件")
-    if len(presentation_sources) > 50:
-        shutil.rmtree(job_directory, ignore_errors=True)
-        raise HTTPException(status_code=400, detail="单次最多解析 50 个 PPTX 文件")
-
     job = {
         "job_id": job_id,
         "status": "queued",
         "source": display_name,
         "directory": str(job_directory),
-        "presentation_sources": [(str(path), name) for path, name in presentation_sources],
-        "manifest": manifest,
+        "upload_path": str(upload_path),
+        "upload_size": size,
+        "presentation_sources": [],
+        "manifest": [],
         "updated_at": time.time(),
         "progress": {"stage": "排队中", "percent": 0, "detail": "等待开始审核项目周报"},
         "result": None,

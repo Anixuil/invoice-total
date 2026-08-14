@@ -350,7 +350,7 @@
 </section>
   </div>
 </main>
-<script src="/static/page-transition.js?v=20260813-2"></script>
+<script src="/static/page-transition.js?v=20260814-1"></script>
 <script>
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
@@ -364,6 +364,7 @@ const jiraMode = new URLSearchParams(window.location.search).get('mode') === 'da
 const isDaily = jiraMode === 'daily';
 let currentJobId = '';
 let currentResult = null;
+const formatSize = bytes => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 let detailRecords = [];
 let detailFilter = { query: '', status: 'all', included: 'all' };
 let viewTransitionTimer = null;
@@ -411,12 +412,13 @@ async function upload(file) {
   if (!file.name.toLowerCase().endsWith('.xlsx')) { showError('请选择 Jira 导出的 .xlsx 文件'); return; }
   currentJobId = ''; currentResult = null; downloadButton.disabled = true;
   document.querySelectorAll('.view-panel').forEach(view => { view.innerHTML = ''; });
-  drop.hidden = true; progress.hidden = false; workspace.hidden = true; setProgress({ percent: 2, stage: '上传文件', detail: '正在上传 Excel 文件' });
+  drop.hidden = true; progress.hidden = false; workspace.hidden = true; setProgress({ percent: 0, stage: '上传文件', detail: '正在上传 Excel 文件' });
   const body = new FormData(); body.append('file', file);
   try {
-    const response = await fetch(`/api/jira/import?mode=${jiraMode}`, { method: 'POST', body });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || response.statusText);
+    const data = await window.uploadFormData(`/api/jira/import?mode=${jiraMode}`, body, (loaded, total) => {
+      const percent = total ? Math.min(99, Math.round(loaded / total * 100)) : 0;
+      setProgress({ percent, stage: '上传文件', detail: `已上传 ${formatSize(loaded)} / ${formatSize(total)}` });
+    });
     currentJobId = data.job_id;
     await poll(data.job_id);
   } catch (error) { showError(error.message || '上传失败'); }
@@ -429,12 +431,13 @@ async function uploadWeekly(files) {
   currentJobId = ''; currentResult = null; downloadButton.disabled = true;
   document.getElementById('weeklyFiles').textContent = `已选择 ${valid.length} 个文件：${valid.map(file => file.name).join('、')}`;
   drop.hidden = true; weeklyUpload.hidden = true; progress.hidden = false; workspace.hidden = true;
-  setProgress({ percent: 2, stage: '上传文件', detail: '正在上传周报 ZIP/目录数据' });
+  setProgress({ percent: 0, stage: '上传文件', detail: '正在上传周报 ZIP/目录数据' });
   const body = new FormData(); valid.forEach(file => body.append('files', file, file.webkitRelativePath || file.name));
   try {
-    const response = await fetch('/api/jira/weekly-statistics/import', { method: 'POST', body });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || response.statusText);
+    const data = await window.uploadFormData('/api/jira/weekly-statistics/import', body, (loaded, total) => {
+      const percent = total ? Math.min(99, Math.round(loaded / total * 100)) : 0;
+      setProgress({ percent, stage: '上传文件', detail: `已上传 ${formatSize(loaded)} / ${formatSize(total)}` });
+    });
     currentJobId = data.job_id;
     await pollWeekly(data.job_id);
   } catch (error) { showError(error.message || '周报统计失败'); }

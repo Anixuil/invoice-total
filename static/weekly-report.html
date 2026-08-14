@@ -163,7 +163,7 @@
     </section>
   </div>
 </main>
-<script src="/static/page-transition.js?v=20260812-1"></script>
+<script src="/static/page-transition.js?v=20260814-1"></script>
 <script>
 const drop=document.getElementById('drop');
 const fileInput=document.getElementById('file');
@@ -196,11 +196,13 @@ function choose(file){
 async function upload(){
   if(!selectedFile)return;
   currentJobId='';currentResult=null;workspace.hidden=true;drop.hidden=true;selectedPanel.hidden=true;progress.hidden=false;
-  setProgress({stage:'上传压缩包',percent:2,detail:`正在上传 ${selectedFile.name}`});
+  setProgress({stage:'上传压缩包',percent:0,detail:`正在上传 ${selectedFile.name}`});
   const body=new FormData();body.append('file',selectedFile);
   try{
-    const response=await fetch('/api/weekly-report/import',{method:'POST',body});const data=await response.json();
-    if(!response.ok)throw new Error(data.detail||response.statusText);currentJobId=data.job_id;await poll(data.job_id);
+    const data=await window.uploadFormData('/api/weekly-report/import',body,(loaded,total)=>{
+      const percent=total?Math.min(99,Math.round(loaded/total*100)):0;
+      setProgress({stage:'上传压缩包',percent,detail:`已上传 ${formatSize(loaded)} / ${formatSize(total)}`});
+    });currentJobId=data.job_id;await poll(data.job_id);
   }catch(error){showError(error.message||'周报整合失败');}
   finally{progress.hidden=true;drop.hidden=false;selectedPanel.hidden=!selectedFile;}
 }
