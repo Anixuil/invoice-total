@@ -194,6 +194,45 @@
     request.send(body);
   });
 
+  {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (input, init = {}) => {
+      const url = new URL(typeof input === 'string' ? input : input.url, window.location.href);
+      if (window.location.pathname !== '/reimbursement' || url.pathname !== '/api/reimbursement/generate' || (init.method || 'GET').toUpperCase() !== 'POST' || !(init.body instanceof FormData)) {
+        return nativeFetch(input, init);
+      }
+      const status = document.getElementById('status');
+      const total = init.body.get('file')?.size || 0;
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', url.href);
+        request.responseType = 'arraybuffer';
+        request.upload.addEventListener('progress', event => {
+          const length = event.lengthComputable ? event.total : total;
+          if (status) status.textContent = `正在上传 ${total ? Math.round(event.loaded / total * 100) : 0}%（${formatUploadBytes(event.loaded)} / ${formatUploadBytes(length)}）`;
+        });
+        request.addEventListener('load', () => {
+          const headers = new Headers();
+          request.getAllResponseHeaders().trim().split(/[\r\n]+/).forEach(line => {
+            const separator = line.indexOf(':');
+            if (separator > 0) headers.append(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+          });
+          resolve(new Response(request.response, { status: request.status, statusText: request.statusText, headers }));
+        });
+        request.addEventListener('error', () => reject(new TypeError('网络连接中断，上传未完成')));
+        request.send(init.body);
+      });
+    };
+    if (window.location.pathname === '/reimbursement') {
+      const limitText = document.querySelector('#drop span');
+      if (limitText) limitText.textContent = '支持将文件拖放到这里，最大 50 MB';
+    }
+  }
+
+  function formatUploadBytes(bytes) {
+    return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
   bindNavigation(document.querySelector('main.shell'));
   updateActiveNavigation(window.location.href);
   const initialContent = document.querySelector('#route-content');

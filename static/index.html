@@ -1126,6 +1126,11 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && viewer.classList.contains('is-open')) closeViewer();
 });
 
+function formatBytes(bytes) {
+  if (!bytes) return '0 KB';
+  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 async function upload(files, preserveRelativePath = false) {
   setLoading(true, files.length);
   const formData = new FormData();
@@ -1134,9 +1139,12 @@ async function upload(files, preserveRelativePath = false) {
     formData.append('files', file, uploadName);
   }
   try {
-    const response = await fetch('/api/upload', { method: 'POST', body: formData });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || response.statusText);
+    const totalBytes = Array.from(files).reduce((total, file) => total + file.size, 0);
+    const data = await window.uploadFormData('/api/upload', formData, (loaded) => {
+      const percent = totalBytes ? Math.min(99, Math.round(loaded / totalBytes * 100)) : 0;
+      document.getElementById('progressTitle').textContent = `正在上传 ${percent}%`;
+      document.getElementById('progressText').textContent = `已上传 ${formatBytes(loaded)} / ${formatBytes(totalBytes)}`;
+    });
     render(data);
     setLoading(false);
     if (data.job_id) await pollPreviewJob(data.job_id);

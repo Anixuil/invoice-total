@@ -30,6 +30,7 @@ import fitz
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from invoice_total import Extractor, sum_money
 from jira_processor import (
@@ -62,7 +63,8 @@ MAX_FILES = 50
 MAX_ARCHIVE_UNPACKED_SIZE = 200 * 1024 * 1024  # ZIP 展开总量 200MB
 WEEKLY_MAX_SIZE = 500 * 1024 * 1024  # 部门周报 ZIP/PPTX 单文件 500MB
 WEEKLY_MAX_ARCHIVE_UNPACKED_SIZE = 2 * 1024 * 1024 * 1024  # 部门周报 ZIP 展开总量 2GB
-READ_CHUNK_SIZE = 1024 * 1024
+REIMBURSEMENT_MAX_SIZE = 50 * 1024 * 1024  # 报销信息 DOCX 50MB
+READ_CHUNK_SIZE = 8 * 1024 * 1024
 MAX_PREVIEW_PAGES = 100
 PREVIEW_SCALE = 1.5
 PREVIEW_JPEG_QUALITY = 76
@@ -140,9 +142,9 @@ async def generate_reimbursement(file: UploadFile = File(...)):
     directory = Path(tempfile.mkdtemp(prefix="reimbursement_"))
     try:
         source = directory / "source.docx"
-        size, _ = await _save_upload(file, source, max_size=10 * 1024 * 1024)
-        if size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="报销信息文件不能超过 10MB")
+        size, _ = await _save_upload(file, source, max_size=REIMBURSEMENT_MAX_SIZE)
+        if size > REIMBURSEMENT_MAX_SIZE:
+            raise HTTPException(status_code=413, detail="报销信息文件不能超过 50MB")
         try:
             reimbursement = parse_reimbursement_docx(source)
             if not reimbursement.fields.get("claimant"):
@@ -200,12 +202,12 @@ def _safe_upload_name(raw_name: str) -> str:
         return _safe_name(raw_name)
 
 
-async def _save_upload(upload: UploadFile, path: Path, max_size: int = MAX_SIZE) -> tuple[int, bytes]:
-    """将上传流写入临时文件，并返回大小与文件头。"""
+def _copy_upload_file(source, path: Path, max_size: int) -> tuple[int, bytes]:
+    """在单个线程任务中完成整段上传拷贝，避免每个分块都调度线程池。"""
     size = 0
     prefix = bytearray()
     with path.open("wb") as output:
-        while chunk := await upload.read(READ_CHUNK_SIZE):
+        while chunk := source.read(READ_CHUNK_SIZE):
             size += len(chunk)
             if size > max_size:
                 return size, bytes(prefix)
@@ -213,6 +215,12 @@ async def _save_upload(upload: UploadFile, path: Path, max_size: int = MAX_SIZE)
                 prefix.extend(chunk[: 1024 - len(prefix)])
             output.write(chunk)
     return size, bytes(prefix)
+
+
+async def _save_upload(upload: UploadFile, path: Path, max_size: int = MAX_SIZE) -> tuple[int, bytes]:
+    """将上传流写入临时文件，并返回大小与文件头。"""
+    await upload.seek(0)
+    return await run_in_threadpool(_copy_upload_file, upload.file, path, max_size)
 
 
 def _result_for_pdf(path: Path, display_name: str):
