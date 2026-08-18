@@ -128,7 +128,7 @@
 </head>
 <body class="page-transition">
 <main class="shell">
-  <nav class="top-nav" aria-label="业务模块"><a href="/">发票核验</a><a href="/jira">Jira 数据处理</a><a class="is-active" href="/weekly-report">周报整合</a><a href="/reimbursement">报销单生成</a></nav>
+  <nav class="top-nav" aria-label="业务模块"><a href="/">发票核验</a><a href="/jira">Jira 数据处理</a><a class="is-active" href="/weekly-report">周报整合</a><a href="/reimbursement">报销单生成</a><a href="/image-to-ppt">图片转 PPT</a></nav>
   <div id="route-content" class="route-content">
     <header class="hero">
       <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5M17 13v3"/></svg></div>
@@ -140,8 +140,8 @@
     <section class="panel upload-panel" aria-label="上传部门项目周报压缩包">
       <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
         <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
-        <div class="upload-copy"><strong>拖入部门项目周报 ZIP</strong><span>系统递归读取 PPTX，保留目录，按内置项目周报与周例会模板审核、排序和整合。单个 ZIP 最大 500MB。</span></div>
-        <button class="primary-button" type="button">选择 ZIP</button>
+        <div class="upload-copy"><strong>拖入部门项目周报 ZIP 或文件夹</strong><span>系统递归读取 PPTX，保留目录，按内置项目周报与周例会模板审核、排序和整合。单个 ZIP 或文件夹总量最大 2GB。</span></div>
+        <div class="selected-actions"><button id="zipButton" class="primary-button" type="button">选择 ZIP</button><button id="folderButton" class="ghost-button" type="button">选择文件夹</button></div>
       </div>
       <div id="selectedFile" class="selected-file" hidden><div><div id="selectedName" class="selected-name"></div><span id="selectedMeta" class="selected-meta"></span></div><div class="selected-actions"><button id="removeButton" class="ghost-button" type="button">移除</button><button id="startButton" class="primary-button" type="button">开始整合</button></div></div>
       <div id="progress" class="progress-panel" hidden aria-live="polite">
@@ -150,6 +150,7 @@
         <div class="progress-steps"><span data-step="1" class="progress-step">扫描目录</span><span data-step="2" class="progress-step">审核 PPT</span><span data-step="3" class="progress-step">整合总周报</span><span data-step="4" class="progress-step">生成周例会</span></div>
       </div>
       <input id="file" type="file" accept=".zip,.ZIP" hidden>
+      <input id="folder" type="file" webkitdirectory directory multiple hidden>
     </section>
 
     <section id="workspace" class="workspace" hidden>
@@ -163,10 +164,11 @@
     </section>
   </div>
 </main>
-<script src="/static/page-transition.js?v=20260814-1"></script>
+<script src="/static/page-transition.js?v=20260812-1"></script>
 <script>
 const drop=document.getElementById('drop');
 const fileInput=document.getElementById('file');
+const folderInput=document.getElementById('folder');
 const selectedPanel=document.getElementById('selectedFile');
 const progress=document.getElementById('progress');
 const workspace=document.getElementById('workspace');
@@ -175,34 +177,40 @@ let selectedFile=null,currentJobId='',currentResult=null,viewTimer=null;
 const VIEW_MS=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?0:220;
 
 drop.addEventListener('click',event=>{if(!event.target.closest('button'))fileInput.click();});
-drop.querySelector('button').addEventListener('click',event=>{event.stopPropagation();fileInput.click();});
+document.getElementById('zipButton').addEventListener('click',event=>{event.stopPropagation();fileInput.click();});
+document.getElementById('folderButton').addEventListener('click',event=>{event.stopPropagation();folderInput.click();});
 drop.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();fileInput.click();}});
 drop.addEventListener('dragover',event=>{event.preventDefault();drop.classList.add('is-dragging');});
 drop.addEventListener('dragleave',event=>{if(!drop.contains(event.relatedTarget))drop.classList.remove('is-dragging');});
-drop.addEventListener('drop',event=>{event.preventDefault();drop.classList.remove('is-dragging');choose(event.dataTransfer.files[0]);});
-fileInput.addEventListener('change',()=>{choose(fileInput.files[0]);fileInput.value='';});
+drop.addEventListener('drop',event=>{event.preventDefault();drop.classList.remove('is-dragging');chooseFiles([...event.dataTransfer.files]);});
+fileInput.addEventListener('change',()=>{chooseFiles([...fileInput.files]);fileInput.value='';});
+folderInput.addEventListener('change',()=>{chooseFiles([...folderInput.files]);folderInput.value='';});
 document.getElementById('removeButton').addEventListener('click',()=>choose(null));
 document.getElementById('startButton').addEventListener('click',upload);
 document.getElementById('clearButton').addEventListener('click',reset);
 Object.entries(downloadButtons).forEach(([kind,button])=>button.addEventListener('click',()=>{if(currentJobId)window.location.href=`/api/weekly-report/jobs/${encodeURIComponent(currentJobId)}/export${kind==='zip'?'':`/${kind}`}`;}));
 document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>showView(tab.dataset.view,tab)));
 
-function choose(file){
-  if(file&&!file.name.toLowerCase().endsWith('.zip')){showUploadError('请选择 ZIP 文件');return;}
-  selectedFile=file||null;selectedPanel.hidden=!selectedFile;
-  if(selectedFile){document.getElementById('selectedName').textContent=selectedFile.name;document.getElementById('selectedMeta').textContent=`${formatSize(selectedFile.size)} · 文件仅在本机临时处理`;}
+function chooseFiles(files){
+  if(!files.length){selectedFile=null;selectedPanel.hidden=true;return;}
+  const isArchive=files.length===1&&files[0].name.toLowerCase().endsWith('.zip');
+  if(!isArchive&&!files.some(file=>file.name.toLowerCase().endsWith('.pptx'))){showUploadError('请选择包含 PPTX 的文件夹或 ZIP 文件');return;}
+  selectedFile=files;selectedPanel.hidden=false;
+  const size=files.reduce((total,file)=>total+file.size,0);
+  document.getElementById('selectedName').textContent=isArchive?files[0].name:`文件夹（${files.length} 个文件）`;
+  document.getElementById('selectedMeta').textContent=`${formatSize(size)} · 文件仅在本机临时处理`;
 }
+function choose(file){chooseFiles(file?[file]:[]);}
 
 async function upload(){
   if(!selectedFile)return;
   currentJobId='';currentResult=null;workspace.hidden=true;drop.hidden=true;selectedPanel.hidden=true;progress.hidden=false;
-  setProgress({stage:'上传压缩包',percent:0,detail:`正在上传 ${selectedFile.name}`});
-  const body=new FormData();body.append('file',selectedFile);
+  const files=selectedFile;setProgress({stage:'上传文件',percent:2,detail:`正在上传 ${files.length===1?files[0].name:`${files.length} 个文件`}`});
+  const body=new FormData();const isArchive=files.length===1&&files[0].name.toLowerCase().endsWith('.zip');
+  files.forEach(file=>body.append(isArchive?'file':'files',file,file.webkitRelativePath||file.name));
   try{
-    const data=await window.uploadFormData('/api/weekly-report/import',body,(loaded,total)=>{
-      const percent=total?Math.min(99,Math.round(loaded/total*100)):0;
-      setProgress({stage:'上传压缩包',percent,detail:`已上传 ${formatSize(loaded)} / ${formatSize(total)}`});
-    });currentJobId=data.job_id;await poll(data.job_id);
+    const response=await fetch('/api/weekly-report/import',{method:'POST',body});const data=await response.json();
+    if(!response.ok)throw new Error(data.detail||response.statusText);currentJobId=data.job_id;await poll(data.job_id);
   }catch(error){showError(error.message||'周报整合失败');}
   finally{progress.hidden=true;drop.hidden=false;selectedPanel.hidden=!selectedFile;}
 }

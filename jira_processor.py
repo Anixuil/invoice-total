@@ -13,6 +13,8 @@ from typing import Any, Callable
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from rapidocr_onnxruntime import RapidOCR
+import cv2
 
 
 ProgressCallback = Callable[[dict[str, Any]], None] | None
@@ -66,8 +68,10 @@ WEEKLY_FILE_KEYS = {
     "new_defects": "本周新增缺陷", "fixed_defects": "本周已修复缺陷",
     "pending_tasks": "待处理任务", "pending_defects": "总挂起缺陷数",
 }
-WEEKLY_REQUIRED_FIELDS = ("issue_key", "status", "summary")
-WEEKLY_FIELD_LABELS = {"issue_key": "问题关键字", "status": "状态", "summary": "概要"}
+WEEKLY_STAT_METRICS = (
+    "本周新增任务数", "本周完成任务数", "本周新增缺陷数", "本周已修复缺陷数",
+    "本周延期缺陷数", "总挂起缺陷数", "本周延期任务数", "总挂起任务数",
+)
 
 FIELD_ALIASES = {
     "issue_key": ["问题关键字", "问题键", "issuekey", "key"],
@@ -162,21 +166,6 @@ def _field_mapping(headers: list[str], indexes: dict[str, int | None], module_in
         "found": bool(module_indexes),
     }
     return mapping
-
-
-def _daily_summary_items(value: Any) -> list[tuple[str, str]]:
-    """从每日汇总表的“任务【状态】”文本中还原任务字段。"""
-    items = []
-    for text in re.split(r"(?:；|;)\s*(?:\r?\n)|\r?\n", _text(value)):
-        text = text.strip()
-        if not text:
-            continue
-        match = re.match(r"^(.*?)【([^】]+)】$", text)
-        if match:
-            items.append((match.group(1).strip(), match.group(2).strip()))
-        else:
-            items.append((text, "未填写"))
-    return items
 
 
 def process_jira_workbook(path: str | Path, progress_callback: ProgressCallback = None) -> dict[str, Any]:
@@ -380,24 +369,14 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
 
         indexes = {field: _find_index(headers, aliases) for field, aliases in FIELD_ALIASES.items()}
         missing = [field for field in ("status", "summary") if indexes[field] is None]
-        is_compact_daily_summary = (
-            bool(missing)
-            and _norm_header(headers[0]) in {_norm_header("经办人"), _norm_header("汇总人员")}
-        )
-        if missing and not is_compact_daily_summary:
+        if missing:
             labels = {"status": "状态", "summary": "概要"}
             raise ValueError("缺少每日处理必需字段：" + "、".join(labels[field] for field in missing))
-        if not is_compact_daily_summary and all(indexes[field] is None for field in ("developer", "assignee", "reporter")):
+        if all(indexes[field] is None for field in ("developer", "assignee", "reporter")):
             raise ValueError("缺少每日处理人员字段：开发人员、经办人或报告人")
 
         mapping = _field_mapping(unique_headers, indexes, _module_indexes(headers))
-        if is_compact_daily_summary:
-            mapping["assignee"] = {"header": headers[0], "column": "A", "found": True}
-            mapping["status"] = {"header": "合并任务文本（任务尾部状态）", "column": "B", "found": True}
-            mapping["summary"] = {"header": "合并任务文本", "column": "B", "found": True}
-            _notify(progress_callback, "识别字段", 18, "已识别每日汇总文本中的状态、概要和经办人")
-        else:
-            _notify(progress_callback, "识别字段", 18, "已识别状态、概要和人员归属字段")
+        _notify(progress_callback, "识别字段", 18, "已识别状态、概要和人员归属字段")
 
         records: list[dict[str, Any]] = []
         for row_number, cells in enumerate(rows, start=2):
@@ -405,51 +384,51 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
             if not any(value not in (None, "") for value in values):
                 continue
             get = lambda field: values[indexes[field]] if indexes[field] is not None and indexes[field] < len(values) else None
-            compact_items = _daily_summary_items(values[1] if len(values) > 1 else None) if is_compact_daily_summary else [(_text(get("summary")), _text(get("status")))]
-            for summary, status_raw in compact_items:
-                assignee = _text(values[0]) if is_compact_daily_summary else _text(get("assignee"))
-                developer = "" if is_compact_daily_summary else _text(get("developer"))
-                reporter = "" if is_compact_daily_summary else _text(get("reporter"))
-                status = STATUS_MAP.get(status_raw, status_raw or "未填写")
-                if developer:
-                    summary_person = developer
-                    summary_source = "开发人员"
-                    consistency = "相同" if not assignee or assignee == developer else "不同"
-                    summary_note = "" if consistency == "相同" else "经办人与开发人员不一致，按开发人员汇总"
-                elif assignee:
-                    summary_person = assignee
-                    summary_source = "经办人"
-                    consistency = "缺少开发人员"
-                    summary_note = "开发人员为空，按经办人汇总"
-                elif reporter:
-                    summary_person = reporter
-                    summary_source = "报告人"
-                    consistency = "缺少开发人员和经办人"
-                    summary_note = "开发人员和经办人均为空，未纳入每日汇总"
-                else:
-                    summary_person = "未分配"
-                    summary_source = "未分配"
-                    consistency = "人员缺失"
-                    summary_note = "开发人员、经办人和报告人均为空，未纳入每日汇总"
-                included = bool(developer or assignee or reporter)
-                records.append({
-                    "source_row": row_number,
-                    "issue_key": _text(get("issue_key")) or f"第{row_number}行",
-                    "status_raw": status_raw,
-                    "status": status,
-                    "summary": summary,
-                    "assignee": assignee,
-                    "reporter": reporter,
-                    "developer": developer,
-                    "summary_person": summary_person,
-                    "summary_source": summary_source,
-                    "summary_note": summary_note,
-                    "module": "",
-                    "planned_completion": _date_text(get("planned_completion")),
-                    "consistency": consistency,
-                    "included": included,
-                    "summary_text": f"{summary}【{status}】",
-                })
+            assignee = _text(get("assignee"))
+            developer = _text(get("developer"))
+            reporter = _text(get("reporter"))
+            status_raw = _text(get("status"))
+            status = STATUS_MAP.get(status_raw, status_raw or "未填写")
+            summary = _text(get("summary"))
+            if developer:
+                summary_person = developer
+                summary_source = "开发人员"
+                consistency = "相同" if not assignee or assignee == developer else "不同"
+                summary_note = "" if consistency == "相同" else "经办人与开发人员不一致，按开发人员汇总"
+            elif assignee:
+                summary_person = assignee
+                summary_source = "经办人"
+                consistency = "缺少开发人员"
+                summary_note = "开发人员为空，按经办人汇总"
+            elif reporter:
+                summary_person = reporter
+                summary_source = "报告人"
+                consistency = "缺少开发人员和经办人"
+                summary_note = "开发人员和经办人均为空，按报告人汇总"
+            else:
+                summary_person = "未分配"
+                summary_source = "未分配"
+                consistency = "人员缺失"
+                summary_note = "开发人员、经办人和报告人均为空，未纳入每日汇总"
+            included = bool(developer or assignee or reporter)
+            records.append({
+                "source_row": row_number,
+                "issue_key": _text(get("issue_key")) or f"第{row_number}行",
+                "status_raw": status_raw,
+                "status": status,
+                "summary": summary,
+                "assignee": assignee,
+                "reporter": reporter,
+                "developer": developer,
+                "summary_person": summary_person,
+                "summary_source": summary_source,
+                "summary_note": summary_note,
+                "module": "",
+                "planned_completion": _date_text(get("planned_completion")),
+                "consistency": consistency,
+                "included": included,
+                "summary_text": f"{summary}【{status}】",
+            })
 
         _notify(progress_callback, "确定人员归属", 48, f"已读取 {len(records)} 条任务")
         roster_order = {name: index + 1 for index, name in enumerate(DEFAULT_ROSTER)}
@@ -511,8 +490,8 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
         workbook.close()
 
 
-def discover_weekly_files(paths: list[str | Path]) -> dict[str, Path | None]:
-    """按 Jira 导出文件名识别周报六类来源，缺失来源以空数据继续处理。"""
+def discover_weekly_files(paths: list[str | Path]) -> dict[str, Path]:
+    """按 Jira 导出文件名识别周报六类来源，忽略 Excel 临时锁定文件。"""
     matches: dict[str, list[Path]] = {key: [] for key in WEEKLY_FILE_KEYS}
     for raw_path in paths:
         path = Path(raw_path)
@@ -526,7 +505,11 @@ def discover_weekly_files(paths: list[str | Path]) -> dict[str, Path | None]:
     if conflicts:
         detail = "；".join(f"{key}: {', '.join(item.name for item in items)}" for key, items in conflicts.items())
         raise ValueError(f"周报文件存在多个候选文件：{detail}")
-    return {key: items[0] if items else None for key, items in matches.items()}
+    missing = [key for key, items in matches.items() if not items]
+    if missing:
+        labels = "、".join(WEEKLY_FILE_KEYS[key] for key in missing)
+        raise ValueError(f"缺少周报来源文件：{labels}")
+    return {key: items[0] for key, items in matches.items()}
 
 
 def _read_weekly_records(path: str | Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -534,17 +517,20 @@ def _read_weekly_records(path: str | Path) -> tuple[list[dict[str, Any]], dict[s
     try:
         worksheet = next((sheet for sheet in workbook.worksheets if sheet.max_row), None)
         if worksheet is None:
-            return [], {"file": Path(path).name, "sheet": "", "headers": [], "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
+            raise ValueError(f"工作簿为空：{Path(path).name}")
         rows = worksheet.iter_rows()
         header_cells = next(rows, None)
         if not header_cells:
-            return [], {"file": Path(path).name, "sheet": worksheet.title, "headers": [], "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
+            raise ValueError(f"工作表为空：{Path(path).name}")
         last = max((index for index, cell in enumerate(header_cells) if _text(cell.value)), default=-1)
         if last < 0:
-            return [], {"file": Path(path).name, "sheet": worksheet.title, "headers": [], "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
+            raise ValueError(f"首行没有字段名：{Path(path).name}")
         headers = [_text(cell.value) or f"列{index + 1}" for index, cell in enumerate(header_cells[:last + 1])]
         indexes = {field: _find_index(headers, aliases) for field, aliases in FIELD_ALIASES.items()}
-        missing = [field for field in WEEKLY_REQUIRED_FIELDS if indexes[field] is None]
+        missing = [field for field in ("issue_key", "status", "summary") if indexes[field] is None]
+        if missing:
+            labels = {"issue_key": "问题关键字", "status": "状态", "summary": "概要"}
+            raise ValueError(f"{Path(path).name} 缺少必需字段：{'、'.join(labels[field] for field in missing)}")
         module_indexes = _module_indexes(headers)
         records = []
         for row_number, cells in enumerate(rows, start=2):
@@ -566,9 +552,18 @@ def _read_weekly_records(path: str | Path) -> tuple[list[dict[str, Any]], dict[s
                 "delivery_date": get("delivery_date"), "resolution": resolution, "issue_type": issue_type,
                 "planned_completion": get("planned_completion"),
             })
-        return records, {"file": Path(path).name, "sheet": worksheet.title, "headers": headers, "empty": False, "missing_fields": missing}
+        return records, {"file": Path(path).name, "sheet": worksheet.title, "headers": headers}
     finally:
         workbook.close()
+
+
+def preview_jira_workbook(path: str | Path) -> dict[str, Any]:
+    """Return a compact, safe preview of an uploaded Jira workbook."""
+    records, metadata = _read_weekly_records(path)
+    columns = ["问题关键字", "状态", "概要", "经办人", "开发人员", "问题类型"]
+    fields = ["issue_key", "status", "summary", "assignee", "developer", "issue_type"]
+    rows = [[_weekly_display_person(record.get(field, "")) if field in {"assignee", "developer"} else _text(record.get(field, "")) for field in fields] for record in records[:15]]
+    return {"file": metadata["file"], "sheet": metadata["sheet"], "headers": columns, "rows": rows, "total_rows": len(records)}
 
 
 def _is_defect(record: dict[str, Any]) -> bool:
@@ -610,26 +605,13 @@ def _weekly_display_person(value: Any) -> str:
     return WEEKLY_NAME_MAP.get(text, text)
 
 
-def process_weekly_statistics(sources: dict[str, str | Path | None], progress_callback: ProgressCallback = None) -> dict[str, Any]:
+def process_weekly_statistics(sources: dict[str, str | Path], progress_callback: ProgressCallback = None) -> dict[str, Any]:
     """处理当前周六类 Jira 导出，生成 23 人周报统计及明细。"""
     all_records: dict[str, list[dict[str, Any]]] = {}
     metadata = {}
-    warnings: list[dict[str, str]] = []
     for index, (key, path) in enumerate(sources.items(), start=1):
-        source_label = WEEKLY_FILE_KEYS[key]
-        if path is None:
-            all_records[key] = []
-            metadata[key] = {"file": "", "sheet": "", "headers": [], "missing": True, "empty": True, "missing_fields": list(WEEKLY_REQUIRED_FIELDS)}
-            warnings.append({"source": source_label, "issue_key": "", "label": "来源文件缺失", "detail": f"未上传“{source_label}”，相关统计已按 0 处理。"})
-            continue
         _notify(progress_callback, "读取周报文件", index * 10, f"正在读取 {Path(path).name}")
         all_records[key], metadata[key] = _read_weekly_records(path)
-        if metadata[key]["empty"]:
-            warnings.append({"source": source_label, "issue_key": "", "label": "来源内容为空", "detail": f"“{Path(path).name}”没有可读取内容，相关统计已按 0 处理。"})
-        missing_fields = metadata[key]["missing_fields"]
-        if missing_fields and not metadata[key]["empty"]:
-            labels = "、".join(WEEKLY_FIELD_LABELS[field] for field in missing_fields)
-            warnings.append({"source": source_label, "issue_key": "", "label": "字段缺失", "detail": f"“{Path(path).name}”缺少 {labels}，对应值已按空处理。"})
     # 已完成任务导出通常不带人员和问题类型，按问题关键字回填新增任务中的归属字段。
     new_task_lookup = {record["issue_key"]: record for record in all_records["new_tasks"]}
     for record in all_records["completed_tasks"]:
@@ -695,7 +677,288 @@ def process_weekly_statistics(sources: dict[str, str | Path | None], progress_ca
     classify_pending("pending_defects", "pending_defect_count", "", "pending_defects")
     classify_pending("pending_tasks", "", "delayed_task_count", "delayed_tasks", True)
     classify_pending("pending_tasks", "", "pending_task_count", "pending_tasks")
-    return {"ok": True, "report_date": report_date.isoformat(), "sources": metadata, "summary": summary, "sections": sections, "warnings": warnings, "anomalies": anomalies, "stats": {"total_rows": sum(len(rows) for rows in all_records.values()), "warning_count": len(warnings), "anomaly_count": len(anomalies)}}
+    return {"ok": True, "report_date": report_date.isoformat(), "sources": metadata, "summary": summary, "sections": sections, "anomalies": anomalies, "stats": {"total_rows": sum(len(rows) for rows in all_records.values()), "anomaly_count": len(anomalies)}}
+
+
+def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
+    """Read visible Chinese names and the value in the screenshot's 合计 column."""
+    ocr = RapidOCR()
+    ocr.text_score = 0.2
+    ocr.min_height = 3
+    detected, _ = ocr(str(path))
+    rows: dict[int, dict[str, Any]] = defaultdict(lambda: {"names": [], "numbers": []})
+    total_column_centers: list[float] = []
+    roster_names = {name for _, name in WEEKLY_ROSTER}
+    header_people: list[tuple[float, str]] = []
+    summary_total_row: int | None = None
+    for item in detected or []:
+        if len(item) < 2:
+            continue
+        box, text = item[0], _text(item[1])
+        if not text:
+            continue
+        center_x = sum(point[0] for point in box) / 4
+        center_y = round(sum(point[1] for point in box) / 4 / 12) * 12
+        if "合计" in text:
+            total_column_centers.append(center_x)
+        if text in roster_names:
+            header_people.append((center_x, text))
+        if "唯一问题合计" in text:
+            summary_total_row = center_y
+        row = rows[center_y]
+        numbers = [int(value) for value in re.findall(r"\d+", text)]
+        if numbers:
+            row["numbers"].extend((center_x, number) for number in numbers)
+        name = re.sub(r"[：:，,。.!！?？\s]", "", text)
+        if re.search(r"[\u4e00-\u9fff]", name) and not any(token in name for token in ("经办人", "合计", "唯一问题", "开放", "处理中", "统计", "分组")):
+            row["names"].append(name)
+    if header_people and summary_total_row is not None:
+        # Some Jira pivots put people in the column headers and issue types in rows.
+        # In that layout the bottom "唯一问题合计" row is the per-person result;
+        # the grey rightmost 合计 column is only a cross-check and must be excluded.
+        total_x = max(total_column_centers, default=float("inf"))
+        people_right_edge = max(center for center, _ in header_people)
+        boundary = (people_right_edge + total_x) / 2 if total_x != float("inf") else float("inf")
+        column_totals: dict[str, int] = {}
+        for center_x, number in rows[summary_total_row]["numbers"]:
+            if center_x >= boundary:
+                continue
+            _, person = min(header_people, key=lambda item: abs(item[0] - center_x))
+            column_totals[person] = number
+        if column_totals:
+            return column_totals
+    if total_column_centers:
+        # The total cell can be faint against the table grid. Re-read the total column at
+        # higher resolution and mark those values explicitly, so other numeric columns
+        # cannot be mistaken for totals when the first OCR pass misses a cell.
+        image = cv2.imread(str(path))
+        if image is not None:
+            total_x = max(total_column_centers)
+            left = max(0, int(total_x - 70))
+            right = min(image.shape[1], int(total_x + 100))
+            for row_y, row in rows.items():
+                if not row["names"]:
+                    continue
+                top = max(0, row_y - 20)
+                bottom = min(image.shape[0], row_y + 20)
+                cell_image = cv2.cvtColor(image[top:bottom, left:right], cv2.COLOR_BGR2GRAY)
+                cell_image = cv2.resize(cell_image, None, fx=5, fy=5, interpolation=cv2.INTER_CUBIC)
+                cell_ocr = RapidOCR()
+                cell_ocr.text_score = 0.05
+                cell_ocr.min_height = 1
+                cell_detected, _ = cell_ocr(cell_image)
+                values = [int(value) for item in cell_detected or [] for value in re.findall(r"\d+", _text(item[1]))]
+                if values:
+                    row["total_numbers"] = values[-1]
+    totals = {}
+    for row in rows.values():
+        if not row["names"] or (not row["numbers"] and "total_numbers" not in row):
+            continue
+        if "total_numbers" in row:
+            totals[row["names"][0]] = row["total_numbers"]
+        elif total_column_centers:
+            total_x = max(total_column_centers)
+            totals[row["names"][0]] = min(row["numbers"], key=lambda item: abs(item[0] - total_x))[1]
+        else:
+            # 某些导出截图会裁掉表头；没有列定位信息时保留最右侧数值作为兼容回退。
+            totals[row["names"][0]] = row["numbers"][-1][1]
+    return totals
+
+
+def _validate_screenshot_metric(path: str | Path, expected_metric: str) -> None:
+    """Ensure the visible Jira pivot title belongs to the selected statistic row."""
+    # A RapidOCR instance owns an ONNX runtime session. Reusing one global
+    # instance across concurrent browser checks can leave later jobs waiting
+    # forever at the screenshot-recognition stage.
+    ocr = RapidOCR()
+    ocr.text_score = 0.2
+    ocr.min_height = 3
+    image = cv2.imread(str(path))
+    if image is None:
+        raise ValueError("无法读取截图，请重新粘贴")
+    # The Jira statistic title is always in the header. Avoid a full-page OCR pass
+    # while the user is waiting for immediate upload validation.
+    header = image[:max(140, int(image.shape[0] * 0.18)), :]
+    if header.shape[1] > 1400:
+        scale = 1400 / header.shape[1]
+        header = cv2.resize(header, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    detected, _ = ocr(header)
+    text = "".join(_text(item[1]) for item in detected or [] if len(item) >= 2)
+    actual = next((metric for metric in WEEKLY_STAT_METRICS if metric in text), None)
+    if actual is None:
+        # Browser chrome and custom Jira layouts can push the title below the fast crop.
+        # Fall back to one full-image pass before rejecting a valid screenshot.
+        detected, _ = ocr(str(path))
+        text = "".join(_text(item[1]) for item in detected or [] if len(item) >= 2)
+        actual = next((metric for metric in WEEKLY_STAT_METRICS if metric in text), None)
+    if actual is None:
+        raise ValueError(f"截图未识别到统计标题，无法确认是否为“{expected_metric}”，请重新截图")
+    if actual != expected_metric:
+        raise ValueError(f"截图统计标题为“{actual}”，与当前“{expected_metric}”不一致，不能生成文件")
+
+
+def validate_screenshot_metric(path: str | Path, expected_metric: str) -> None:
+    """Validate a screenshot title before it is accepted in the browser."""
+    _validate_screenshot_metric(path, expected_metric)
+
+
+def _extract_screenshot_grand_total(path: str | Path) -> int | None:
+    """Read the grey 合计 value from the Jira pivot's 唯一问题合计 row."""
+    ocr = RapidOCR()
+    ocr.text_score = 0.2
+    ocr.min_height = 3
+    detected, _ = ocr(str(path))
+    total_x: float | None = None
+    summary_y: int | None = None
+    values: list[tuple[float, int]] = []
+    for item in detected or []:
+        if len(item) < 2:
+            continue
+        box, text = item[0], _text(item[1])
+        if not text:
+            continue
+        center_x = sum(point[0] for point in box) / 4
+        center_y = round(sum(point[1] for point in box) / 4 / 12) * 12
+        if "合计" in text and "唯一问题" not in text:
+            total_x = max(total_x or center_x, center_x)
+        if "唯一问题合计" in text:
+            summary_y = center_y
+        values.extend((center_x, int(value)) for value in re.findall(r"\d+", text) if center_y == summary_y)
+    if total_x is None or summary_y is None:
+        return None
+    summary_values = []
+    for item in detected or []:
+        if len(item) < 2:
+            continue
+        box, text = item[0], _text(item[1])
+        center_y = round(sum(point[1] for point in box) / 4 / 12) * 12
+        if center_y == summary_y:
+            center_x = sum(point[0] for point in box) / 4
+            summary_values.extend((center_x, int(value)) for value in re.findall(r"\d+", text))
+    return min(summary_values, key=lambda item: abs(item[0] - total_x))[1] if summary_values else None
+
+
+def process_new_task_statistics(path: str | Path, screenshot: str | Path, metric: str = "本周新增任务数", progress_callback: ProgressCallback = None) -> dict[str, Any]:
+    """Adjust screenshot totals using developer/assignee mismatches from a Jira export."""
+    _notify(progress_callback, "读取 Jira 数据", 20, "正在检查开发人员和经办人")
+    _validate_screenshot_metric(screenshot, metric)
+    records, metadata = _read_weekly_records(path)
+    baseline = _extract_screenshot_totals(screenshot)
+    screenshot_total = _extract_screenshot_grand_total(screenshot)
+    excel_total = sum(not _is_defect(record) for record in records)
+    if screenshot_total is not None and screenshot_total != excel_total:
+        raise ValueError(f"Jira Excel 任务数为 {excel_total}，截图合计为 {screenshot_total}，数据不一致，请确认上传的是同一批周报文件和截图")
+    reverse_names = {name: username for username, name in WEEKLY_ROSTER}
+    counts = {username: baseline.get(name) for username, name in WEEKLY_ROSTER}
+    mismatches = []
+    for record in records:
+        if _is_defect(record):
+            continue
+        assignee = _text(record.get("assignee"))
+        developer = _text(record.get("developer"))
+        assignee_key = reverse_names.get(assignee, assignee)
+        developer_key = reverse_names.get(developer, developer)
+        if assignee and developer and assignee != developer:
+            counts[developer_key] = (counts.get(developer_key) or 0) + 1
+            counts[assignee_key] = max(0, (counts.get(assignee_key) or 0) - 1)
+            mismatches.append({"issue_key": record["issue_key"], "assignee": _weekly_display_person(assignee), "developer": _weekly_display_person(developer)})
+    summary = [{"序号": index, "姓名": name, metric: counts.get(username) or ""} for index, (username, name) in enumerate(WEEKLY_ROSTER, start=1)]
+    return {"ok": True, "source": metadata, "summary": summary, "mismatches": mismatches, "screenshot_totals": baseline}
+
+
+def process_screenshot_statistics(screenshot: str | Path, metric: str, progress_callback: ProgressCallback = None) -> dict[str, Any]:
+    """Extract one Jira screenshot statistic in the fixed weekly roster order."""
+    _notify(progress_callback, "识别统计截图", 60, "正在提取人员和合计数量")
+    _validate_screenshot_metric(screenshot, metric)
+    baseline = _extract_screenshot_totals(screenshot)
+    summary = [{"序号": index, "姓名": name, metric: baseline.get(name) or ""} for index, (_, name) in enumerate(WEEKLY_ROSTER, start=1)]
+    return {"ok": True, "summary": summary, "screenshot_totals": baseline, "metric": metric}
+
+
+def export_new_task_statistics_xlsx(result: dict[str, Any], target: str | Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "本周新增任务"
+    metric = next((key for key in result["summary"][0] if key not in {"序号", "姓名"}), "本周新增任务数")
+    sheet.append(["姓名", metric])
+    header_fill = PatternFill("solid", fgColor="2F5597")
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for item in result["summary"]:
+        sheet.append([item["姓名"], item.get(metric, "")])
+    total_row = sheet.max_row + 1
+    sheet.cell(total_row, 1, "合计")
+    sheet.cell(total_row, 2, f"=SUM(B2:B{total_row - 1})")
+    for cell in sheet[total_row]:
+        cell.font = Font(bold=True)
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.border = Border(left=Side(style="thin", color="808080"), right=Side(style="thin", color="808080"), top=Side(style="thin", color="808080"), bottom=Side(style="thin", color="808080"))
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    sheet.column_dimensions["A"].width = 14
+    sheet.column_dimensions["B"].width = 22
+    sheet.freeze_panes = "A2"
+    workbook.save(target)
+    workbook.close()
+
+
+def export_combined_weekly_statistics_xlsx(statistics: dict[str, list[dict[str, Any]]], target: str | Path) -> None:
+    """Export the eight independently generated Jira statistics into one weekly sheet."""
+    metrics = [
+        ("new-tasks", "本周新增任务数"), ("completed-tasks", "本周完成任务数"),
+        ("new-defects", "本周新增缺陷数"), ("fixed-defects", "本周已修复缺陷数"),
+        ("delayed-defects", "本周延期缺陷数"), ("pending-defects", "总挂起缺陷数"),
+        ("delayed-tasks", "本周延期任务数"), ("pending-tasks", "总挂起任务数"),
+    ]
+    values_by_metric = {
+        key: {str(item.get("姓名", "")): item.get(label, "") for item in statistics.get(key, [])}
+        for key, label in metrics
+    }
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "周报统计汇总"
+    sheet.append(["序号", "姓名", *(label for _, label in metrics)])
+    fill = PatternFill("solid", fgColor="2F5597")
+    thin = Side(style="thin", color="808080")
+    for cell in sheet[1]:
+        cell.fill = fill
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for index, (_, name) in enumerate(WEEKLY_ROSTER, start=1):
+        row = [index, name]
+        row.extend(values_by_metric[key].get(name, "") for key, _ in metrics)
+        sheet.append(row)
+    total_row = sheet.max_row + 1
+    sheet.cell(total_row, 1, "合计")
+    for column in range(3, 11):
+        sheet.cell(total_row, column, f"=SUM({get_column_letter(column)}2:{get_column_letter(column)}{total_row - 1})")
+    def is_positive(value: Any) -> bool:
+        try:
+            return float(value) > 0
+        except (TypeError, ValueError):
+            return False
+
+    warning_columns = (7, 8, 9, 10)
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    for row in range(2, total_row):
+        for column in warning_columns:
+            if is_positive(sheet.cell(row, column).value):
+                sheet.cell(row, column).font = Font(color="FF0000")
+    for cell in sheet[total_row]:
+        cell.font = Font(bold=True)
+    for column in warning_columns:
+        if any(is_positive(sheet.cell(row, column).value) for row in range(2, total_row)):
+            sheet.cell(total_row, column).font = Font(color="FF0000", bold=True)
+    for index, width in enumerate([8, 14, 16, 16, 16, 16, 16, 16, 16, 16], start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    sheet.freeze_panes = "A2"
+    workbook.save(target)
+    workbook.close()
 
 
 def export_weekly_statistics_xlsx(result: dict[str, Any], target: str | Path) -> None:
@@ -789,7 +1052,7 @@ def export_weekly_statistics_xlsx(result: dict[str, Any], target: str | Path) ->
 
     anomaly_sheet = workbook.create_sheet("异常清单")
     anomaly_sheet.append(["来源", "问题关键字", "异常类型", "说明"])
-    for item in [*result.get("warnings", []), *result["anomalies"]]:
+    for item in result["anomalies"]:
         anomaly_sheet.append([item.get("source", ""), item.get("issue_key", ""), item.get("label", ""), item.get("detail", "")])
     notes_sheet = workbook.create_sheet("处理说明")
     notes_sheet.append(["项目", "内容"])

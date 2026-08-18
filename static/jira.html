@@ -56,6 +56,36 @@
   .weekly-upload .primary-button, .weekly-upload .ghost-button { min-height: 36px; white-space: nowrap; }
   .weekly-upload .primary-button { padding: 9px 15px; }
   .weekly-upload .ghost-button { padding: 8px 13px; }
+  .weekly-new-task-toolbar { display: grid; gap: 14px; padding: 4px; background: #f4f6f8; border: 1px solid #d8e0e8; }
+  .weekly-stat-grid { display: grid; gap: 16px; }
+  .weekly-stat-row .weekly-inline-error { grid-column: 1 / -1; margin-top: -8px; padding: 2px 2px 0; color: #b42318; font-size: 14px; line-height: 1.45; }
+  .weekly-summary-action { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 8px; color: #526578; font-size: 14px; }
+  .preview-dialog { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(21, 37, 52, .42); }
+  .preview-dialog[hidden] { display: none; }
+  .preview-dialog__content { width: min(920px, 100%); max-height: min(760px, calc(100vh - 48px)); overflow: auto; padding: 20px; border: 1px solid #aebdca; background: #fff; box-shadow: 0 18px 46px rgba(14, 29, 43, .25); }
+  .preview-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; color: #183b5b; }
+  .preview-dialog__header h2 { margin: 0; font-size: 18px; }
+  .preview-dialog__image { display: block; width: 100%; height: auto; border: 1px solid #d3dde7; }
+  .preview-dialog .table-scroll { max-height: 500px; }
+  .weekly-stat-row { display: grid; grid-template-columns: minmax(230px, 1.45fr) minmax(150px, .9fr) minmax(150px, .9fr) minmax(150px, .9fr); gap: 8px; align-items: center; }
+  .weekly-stat-button, .weekly-action-button { min-height: 42px; padding: 8px 15px; border: 1px solid #c6d1dd; color: #23405c; background: #fff; font: inherit; font-size: 15px; letter-spacing: 0; cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease; }
+  .weekly-stat-button { text-align: left; font-weight: 700; background: #e9eef3; }
+  .weekly-stat-button.is-active { color: #23405c; background: #e9eef3; border-color: #c6d1dd; box-shadow: none; }
+  .weekly-action-button { font-weight: 600; }
+  .weekly-action-button.is-generate { color: #fff; background: #285a78; border-color: #285a78; }
+  .weekly-action-button.is-ready { position: relative; padding-right: 38px; color: #1f5b47; background: #e4f2eb; border-color: #8ebda9; }
+.weekly-action-button.is-ready::after { content: "×"; position: absolute; top: 50%; right: 10px; width: 19px; height: 19px; transform: translateY(-50%); border-radius: 50%; color: #fff; background: #5e8978; font-size: 17px; font-weight: 700; line-height: 17px; text-align: center; }
+.weekly-action-button.is-ready:hover::after { background: #a63c35; }
+.weekly-action-button.is-processing { position: relative; padding-right: 38px; }
+.weekly-action-button.is-processing::after { content: "×"; position: absolute; top: 50%; right: 10px; width: 19px; height: 19px; transform: translateY(-50%); border-radius: 50%; color: #fff; background: #a66b22; font-size: 17px; font-weight: 700; line-height: 17px; text-align: center; }
+.weekly-action-button.is-processing:hover::after { background: #a63c35; }
+  .weekly-action-button.is-generate.is-ready { color: #fff; background: #2f7461; border-color: #2f7461; }
+.weekly-action-button.is-processing { color: #7a5316; background: #f8eed8; border-color: #d7b473; background-image: linear-gradient(90deg, rgba(255,255,255,.32) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.32) 50%, rgba(255,255,255,.32) 75%, transparent 75%); background-size: 22px 22px; animation: weekly-scan 1s linear infinite; }
+  .weekly-action-button.is-awaiting-paste { color: #385979; background: #eef5fa; border-color: #8fb1ca; }
+  .clipboard-paste-target { position: fixed; top: 0; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+@keyframes weekly-scan { to { background-position: 22px 0; } }
+  .weekly-stat-button:hover, .weekly-action-button:hover { color: #183b5b; border-color: #7f9fbc; background: #eef5fa; }
+  .weekly-action-button.is-generate:hover { color: #fff; background: #12324e; border-color: #12324e; }
   .meta-dot { display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--primary); }
   .progress-panel { margin-top: 12px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfd; }
   .progress-head { display: flex; align-items: center; gap: 12px; }
@@ -284,6 +314,7 @@
     .weekly-upload { grid-template-columns: 1fr 1fr; }
     .weekly-upload .upload-copy { grid-column: 1 / -1; grid-row: 1; }
     .weekly-upload .primary-button, .weekly-upload .ghost-button { width: 100%; }
+    .weekly-stat-row { grid-template-columns: 1fr 1fr; }
     .summary-panel { grid-template-columns: 1fr; padding: 18px; }
     .summary-stats { grid-template-columns: repeat(2, 1fr); }
     .top-nav { margin-bottom: 22px; }
@@ -301,7 +332,7 @@
     <a href="/">发票核验</a>
     <a class="is-active" href="/jira">Jira 数据处理</a>
     <a href="/weekly-report">周报生成</a>
-    <a href="/reimbursement">报销单生成</a>
+    <a href="/reimbursement">报销单生成</a><a href="/image-to-ppt">图片转 PPT</a>
   </nav>
   <nav class="mode-switch" aria-label="Jira 处理类型">
     <a id="weeklyModeLink" href="/jira" role="tab">周报处理</a>
@@ -319,6 +350,20 @@
   </header>
 
   <section class="panel upload-panel" aria-label="上传 Jira Excel">
+    <div id="weeklyNewTaskToolbar" class="weekly-new-task-toolbar" hidden>
+      <div class="weekly-stat-grid">
+        <div class="weekly-stat-row"><button id="newTaskButton" class="weekly-stat-button is-active" type="button">本周新增任务数</button><button id="newTaskExcelButton" class="weekly-action-button" type="button">上传文件</button><button id="newTaskPasteButton" class="weekly-action-button" type="button">粘贴截图</button><button id="newTaskGenerateButton" class="weekly-action-button is-generate" type="button">生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="completed-tasks" type="button">本周完成任务数</button><button class="weekly-action-button" data-stat-upload="completed-tasks" type="button">上传文件</button><button class="weekly-action-button" data-stat-paste="completed-tasks" type="button">粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="completed-tasks" type="button">生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="new-defects" type="button">本周新增缺陷数</button><button class="weekly-action-button" data-stat-upload="new-defects" type="button">粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="new-defects" type="button">生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="fixed-defects" type="button">本周已修复缺陷数</button><button class="weekly-action-button" data-stat-upload="fixed-defects" type="button">粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="fixed-defects" type="button">生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="delayed-defects" type="button">本周延期缺陷数</button><button class="weekly-action-button" data-stat-upload="delayed-defects" type="button">粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="delayed-defects" type="button">生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="pending-defects" type="button">总挂起缺陷数</button><button class="weekly-action-button" data-stat-upload="pending-defects" type="button">粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="pending-defects" type="button">生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="delayed-tasks" type="button">本周延期任务数</button><button class="weekly-action-button" data-stat-upload="delayed-tasks" type="button">粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="delayed-tasks" type="button">生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="pending-tasks" type="button">总挂起任务数</button><button class="weekly-action-button" data-stat-upload="pending-tasks" type="button">粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="pending-tasks" type="button">生成文件</button></div>
+      </div>
+      <div class="weekly-summary-action"><span>已生成的统计可整合为一份周报总表</span><button id="weeklySummaryButton" class="weekly-action-button is-generate" type="button">整合生成</button></div>
+      <div id="newTaskStatus" class="upload-copy">请上传 Jira Excel，并粘贴或选择统计截图</div>
+    </div>
     <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
       <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
       <div class="upload-copy"><strong id="uploadTitle">拖入 Jira 导出的 .xlsx 文件</strong><span id="uploadHint">任务优先归属开发人员，其次经办人、报告人；发生回退时会保留备注。</span></div>
@@ -329,11 +374,17 @@
       <button id="directoryButton" class="ghost-button" type="button">选择数据目录</button>
       <span id="weeklyFiles" class="upload-copy">尚未选择周报文件</span>
     </div>
+    <div id="previewDialog" class="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="previewTitle" hidden>
+      <div class="preview-dialog__content"><div class="preview-dialog__header"><h2 id="previewTitle">上传内容预览</h2><button id="previewCloseButton" class="ghost-button" type="button">关闭</button></div><div id="previewBody"></div></div>
+    </div>
     <div id="progress" class="progress-panel" hidden aria-live="polite"><div class="progress-head"><div class="spinner" aria-hidden="true"></div><div><strong id="progressTitle">正在处理 Jira 数据</strong><span id="progressText">等待开始</span></div></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div>
     <div class="upload-meta"><span><i class="meta-dot"></i>支持 Jira .xlsx 导出文件</span><span><i class="meta-dot"></i>单文件最大 20MB</span><span><i class="meta-dot"></i>处理完成后可下载汇总 Excel</span></div>
     <input id="file" type="file" accept=".xlsx,.XLSX" hidden>
     <input id="zipFile" type="file" accept=".zip,.ZIP" hidden>
     <input id="directoryFiles" type="file" webkitdirectory directory multiple accept=".xlsx,.XLSX" hidden>
+    <input id="newTaskExcel" type="file" accept=".xlsx,.XLSX" hidden>
+    <input id="newTaskScreenshot" type="file" accept=".png,.PNG,.jpg,.JPG,.jpeg,.JPEG,.webp,.WEBP" hidden>
+    <div id="clipboardPasteTarget" class="clipboard-paste-target" contenteditable="true" tabindex="-1" aria-label="截图粘贴输入区"></div>
   </section>
 
   <section id="workspace" class="workspace" hidden>
@@ -350,13 +401,17 @@
 </section>
   </div>
 </main>
-<script src="/static/page-transition.js?v=20260814-1"></script>
+<script src="/static/page-transition.js?v=20260813-2"></script>
 <script>
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
 const zipFileInput = document.getElementById('zipFile');
 const directoryInput = document.getElementById('directoryFiles');
+const newTaskExcel = document.getElementById('newTaskExcel');
+const newTaskScreenshot = document.getElementById('newTaskScreenshot');
+const clipboardPasteTarget = document.getElementById('clipboardPasteTarget');
 const weeklyUpload = document.getElementById('weeklyUpload');
+const weeklyNewTaskToolbar = document.getElementById('weeklyNewTaskToolbar');
 const progress = document.getElementById('progress');
 const workspace = document.getElementById('workspace');
 const downloadButton = document.getElementById('downloadButton');
@@ -364,11 +419,444 @@ const jiraMode = new URLSearchParams(window.location.search).get('mode') === 'da
 const isDaily = jiraMode === 'daily';
 let currentJobId = '';
 let currentResult = null;
-const formatSize = bytes => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+let newTaskMode = false;
+let newTaskSource = null;
+let newTaskScreenshotFile = null;
+let activeWeeklyStat = 'new-tasks';
+let pasteTargetStat = '';
+const weeklyStatisticInputs = {};
+const weeklyStatFiles = {};
+const weeklyStatImages = {};
+const weeklyStatResults = {};
+const weeklyStatJobs = {};
+const weeklyStatState = {};
+const weeklyStatFileNames = {
+  'new-tasks': '本周新增任务数.xlsx', 'completed-tasks': '本周完成任务数.xlsx',
+  'new-defects': '本周新增缺陷数.xlsx', 'fixed-defects': '本周已修复缺陷数.xlsx',
+  'delayed-defects': '本周延期缺陷数.xlsx', 'pending-defects': '总挂起缺陷数.xlsx',
+  'delayed-tasks': '本周延期任务数.xlsx', 'pending-tasks': '总挂起任务数.xlsx'
+};
+let generatedStatKey = '';
+let previewObjectUrl = '';
 let detailRecords = [];
 let detailFilter = { query: '', status: 'all', included: 'all' };
 let viewTransitionTimer = null;
 const VIEW_TRANSITION_MS = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 240;
+
+function setWeeklyActionState(button, label, state = 'ready') {
+  if (!button) return;
+  if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent;
+  if (button._scanActive && state !== 'processing') {
+    button._scanLabel = label;
+    return;
+  }
+  button.textContent = label;
+  button.classList.remove('is-ready', 'is-processing');
+  button.classList.add(state === 'processing' ? 'is-processing' : 'is-ready');
+}
+
+function scanWeeklyUpload(button, completeLabel, duration = 800) {
+  if (!button) return;
+  cancelWeeklyScan(button, true);
+  const scanId = (button._scanId || 0) + 1;
+  button._scanId = scanId;
+  button._scanActive = true;
+  button._scanLabel = completeLabel;
+  let percent = 8;
+  button.textContent = `扫描中 ${percent}%`;
+  button.classList.remove('is-ready');
+  button.classList.add('is-processing');
+  button._scanTimer = setInterval(() => {
+    if (button._scanId !== scanId) return;
+    percent = Math.min(96, percent + 11);
+    button.textContent = `扫描中 ${percent}%`;
+  }, 110);
+  button._scanFinishTimer = window.setTimeout(() => {
+    if (button._scanId !== scanId) return;
+    clearInterval(button._scanTimer);
+    button._scanTimer = null;
+    button._scanActive = false;
+    setWeeklyActionState(button, button._scanLabel || completeLabel);
+  }, duration);
+}
+
+function scanWeeklyGeneration(button) {
+  if (!button) return;
+  if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent;
+  button.classList.remove('is-awaiting-paste');
+  cancelWeeklyScan(button, true);
+  const scanId = (button._scanId || 0) + 1;
+  button._scanId = scanId;
+  button._scanActive = true;
+  button._scanLabel = '';
+  let percent = 4;
+  button.textContent = `扫描中 ${percent}%`;
+  button.classList.remove('is-ready');
+  button.classList.add('is-processing');
+  button._scanTimer = setInterval(() => {
+    if (button._scanId !== scanId) return;
+    percent = Math.min(94, percent + (percent < 50 ? 7 : 3));
+    button.textContent = `扫描中 ${percent}%`;
+  }, 260);
+  button._scanWatchdog = window.setTimeout(() => {
+    if (button._scanId !== scanId || !button._scanActive) return;
+    const statKey = button.id === 'newTaskGenerateButton' ? 'new-tasks' : button.dataset.statGenerate;
+    cancelWeeklyScan(button);
+    if (statKey) showWeeklyInlineError(statKey, '生成处理超时，请检查截图标题和网络后重试');
+  }, 60000);
+}
+
+function scanWeeklyScreenshot(button) {
+  if (!button) return;
+  if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent;
+  cancelWeeklyScan(button, true);
+  const scanId = (button._scanId || 0) + 1;
+  button._scanId = scanId;
+  button._scanActive = true;
+  button._scanLabel = '';
+  let percent = 8;
+  button.textContent = `校验截图 ${percent}%`;
+  button.classList.remove('is-ready');
+  button.classList.add('is-processing');
+  button._scanTimer = setInterval(() => {
+    if (button._scanId !== scanId) return;
+    percent = Math.min(94, percent + 6);
+    button.textContent = `校验截图 ${percent}%`;
+  }, 300);
+  button._scanWatchdog = window.setTimeout(() => {
+    if (button._scanId !== scanId || !button._scanActive) return;
+    cancelWeeklyScan(button);
+    const statKey = button.id === 'newTaskPasteButton' ? 'new-tasks' : button.dataset.statPaste || button.dataset.statUpload;
+    if (statKey) showWeeklyInlineError(statKey, '截图校验超时，请重新 Ctrl+V 粘贴后重试');
+  }, 90000);
+}
+
+function completeWeeklyGeneration(button, label) {
+  if (!button) return;
+  if (button._scanTimer) clearInterval(button._scanTimer);
+  if (button._scanWatchdog) clearTimeout(button._scanWatchdog);
+  button._scanTimer = null;
+  button._scanWatchdog = null;
+  const scanId = button._scanId;
+  button.textContent = '扫描中 100%';
+  button._scanFinishTimer = window.setTimeout(() => {
+    if (button._scanId !== scanId) return;
+    button._scanActive = false;
+    setWeeklyActionState(button, label);
+  }, 180);
+}
+
+function cancelWeeklyScan(button, preserveLabel = false) {
+  if (!button) return;
+  if (button._scanTimer) clearInterval(button._scanTimer);
+  if (button._scanFinishTimer) clearTimeout(button._scanFinishTimer);
+  if (button._scanWatchdog) clearTimeout(button._scanWatchdog);
+  button._scanId = (button._scanId || 0) + 1;
+  button._scanTimer = null;
+  button._scanFinishTimer = null;
+  button._scanWatchdog = null;
+  button._scanActive = false;
+  button._scanLabel = '';
+  if (!preserveLabel) {
+    button.textContent = button.dataset.defaultLabel || '重新上传';
+    button.classList.remove('is-ready', 'is-processing', 'is-awaiting-paste');
+  }
+}
+
+function clearWeeklyInput(button, statKey) {
+  const inputKey = statKey === 'new-tasks' ? (button.id === 'newTaskExcelButton' ? 'new-tasks-file' : 'new-tasks-image') : statKey;
+  const isWorkbook = button.id === 'newTaskExcelButton' || button.dataset.statUpload === 'completed-tasks';
+  if (statKey !== 'completed-tasks') delete weeklyStatisticInputs[inputKey];
+  if (isWorkbook) delete weeklyStatFiles[statKey];
+  else delete weeklyStatImages[statKey];
+  if (weeklyStatState[statKey]) {
+    weeklyStatState[statKey][isWorkbook ? 'excel' : 'screenshot'] = null;
+  }
+  if (pasteTargetStat === statKey) pasteTargetStat = '';
+  if (statKey === 'new-tasks') {
+    if (button.id === 'newTaskExcelButton') newTaskSource = null;
+    if (button.id === 'newTaskPasteButton') newTaskScreenshotFile = null;
+  }
+  button._weeklyUploadFile = null;
+  button._weeklyInputVersion = (button._weeklyInputVersion || 0) + 1;
+  cancelWeeklyScan(button);
+  button.textContent = button.id === 'newTaskExcelButton' || button.dataset.statUpload === 'completed-tasks'
+    ? '上传文件'
+    : '粘贴截图';
+  button.classList.remove('is-ready', 'is-processing', 'is-awaiting-paste');
+  if (isWorkbook) newTaskExcel.value = '';
+  else newTaskScreenshot.value = '';
+  document.getElementById('newTaskStatus').textContent = '已删除，可重新上传';
+}
+
+function isClearClick(event, button) {
+  const rect = button.getBoundingClientRect();
+  if (button.classList.contains('is-processing')) return true;
+  return button.classList.contains('is-ready') && (event.clientX >= rect.right - 80 || event.offsetX >= button.clientWidth - 80);
+}
+
+function saveWeeklyStatInput(statKey, inputType, file) {
+  if (!weeklyStatState[statKey]) weeklyStatState[statKey] = { excel: null, screenshot: null };
+  weeklyStatState[statKey][inputType] = file;
+}
+
+function getWeeklyStatInput(statKey, inputType) {
+  return weeklyStatState[statKey]?.[inputType] || null;
+}
+
+function retainPastedScreenshot(file) {
+  try {
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    newTaskScreenshot.files = transfer.files;
+  } catch (_) {
+    // The per-row state remains the fallback for browsers that disallow it.
+  }
+}
+
+function clearGeneratedAction(button, statKey = '') {
+  if (statKey) delete weeklyStatResults[statKey];
+  if (statKey) delete weeklyStatJobs[statKey];
+  if (generatedStatKey === statKey) { currentJobId = ''; currentResult = null; generatedStatKey = ''; }
+  button._weeklyInputVersion = (button._weeklyInputVersion || 0) + 1;
+  cancelWeeklyScan(button);
+  button.textContent = button.dataset.defaultLabel || '生成文件';
+  document.getElementById('newTaskStatus').textContent = '结果已删除，可重新生成';
+}
+
+function screenshotActionButton(statKey) {
+  if (statKey === 'new-tasks') return document.getElementById('newTaskPasteButton');
+  return document.querySelector(`[data-stat-paste="${statKey}"]`) || document.querySelector(`[data-stat-upload="${statKey}"]`);
+}
+
+function updateWeeklyGenerationProgress(button, progress) {
+  if (!button || !button._scanActive) return;
+  if (button._scanTimer) clearInterval(button._scanTimer);
+  button._scanTimer = null;
+  const percent = Math.max(1, Math.min(99, Number(progress?.percent) || 20));
+  const stage = progress?.stage || '正在处理';
+  button.textContent = `${stage} ${percent}%`;
+}
+
+function statGenerateButton(statKey) {
+  return statKey === 'new-tasks' ? document.getElementById('newTaskGenerateButton') : document.querySelector(`[data-stat-generate="${statKey}"]`);
+}
+
+function showWeeklyInlineError(statKey, message) {
+  const row = statGenerateButton(statKey)?.closest('.weekly-stat-row');
+  if (!row) return;
+  let target = row.querySelector('.weekly-inline-error');
+  if (!target) { target = document.createElement('div'); target.className = 'weekly-inline-error'; row.appendChild(target); }
+  target.textContent = message;
+}
+
+function clearWeeklyInlineError(statKey) {
+  statGenerateButton(statKey)?.closest('.weekly-stat-row')?.querySelector('.weekly-inline-error')?.remove();
+}
+
+function closePreview() {
+  document.getElementById('previewDialog').hidden = true;
+  document.getElementById('previewBody').innerHTML = '';
+  if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = ''; }
+}
+
+function previewScreenshot(file) {
+  if (!file) return;
+  previewObjectUrl = URL.createObjectURL(file);
+  document.getElementById('previewTitle').textContent = file.name || '粘贴截图预览';
+  document.getElementById('previewBody').innerHTML = `<img class="preview-dialog__image" src="${previewObjectUrl}" alt="已上传截图预览">`;
+  document.getElementById('previewDialog').hidden = false;
+}
+
+async function previewWorkbook(file) {
+  if (!file) return;
+  document.getElementById('previewTitle').textContent = file.name;
+  document.getElementById('previewBody').textContent = '正在读取 Excel 预览...';
+  document.getElementById('previewDialog').hidden = false;
+  const body = new FormData(); body.append('file', file);
+  try {
+    const response = await fetch('/api/jira/workbook-preview', { method: 'POST', body });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    document.getElementById('previewBody').innerHTML = `<p class="upload-copy">${esc(data.sheet)} · 共 ${data.total_rows} 条记录，显示前 ${data.rows.length} 条</p><div class="table-scroll"><table><thead><tr>${data.headers.map(header => `<th>${esc(header)}</th>`).join('')}</tr></thead><tbody>${data.rows.map(row => `<tr>${row.map(value => `<td>${esc(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  } catch (error) { document.getElementById('previewBody').textContent = error.message || '无法读取 Excel 预览'; }
+}
+
+document.getElementById('previewCloseButton').addEventListener('click', closePreview);
+document.getElementById('previewDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closePreview(); });
+
+async function validateScreenshotTitle(statKey, image) {
+  const body = new FormData(); body.append('screenshot', image, image.name || 'clipboard.png');
+  const { response, data } = await postFormJson(`/api/jira/screenshot-title-check/${encodeURIComponent(statKey)}`, body, 90000);
+  if (!response.ok) throw new Error(data.detail || response.statusText);
+}
+
+function clipboardImageFile(event) {
+  const clipboard = event.clipboardData;
+  const file = Array.from(clipboard?.files || []).find(item => item.type.startsWith('image/'));
+  if (file) return file;
+  const item = Array.from(clipboard?.items || []).find(item => item.type.startsWith('image/'));
+  return item?.getAsFile() || null;
+}
+
+// Lock the target row before any of the legacy button handlers run. The
+// original page reused one hidden file input for every row, which could leave
+// a paste validation pointed at the first statistic after changing rows.
+document.addEventListener('click', event => {
+  const button = event.target.closest('#newTaskExcelButton, #newTaskPasteButton, #newTaskGenerateButton, [data-stat-upload], [data-stat-paste], [data-stat-generate]');
+  if (!button) return;
+  // Let the dedicated clear handlers process delete clicks. A processing
+  // button is cancellable from anywhere; a ready button keeps its center for
+  // preview and its right edge for delete.
+  if (isClearClick(event, button)) return;
+  const isGenerateButton = button.id === 'newTaskGenerateButton' || button.dataset.statGenerate;
+  if (isGenerateButton) {
+    // Handle generation here with DOM file fallbacks. The page historically
+    // had several generation listeners; this capture path is the single
+    // authoritative entry point and prevents a stale listener from winning.
+    const statKey = button.id === 'newTaskGenerateButton' ? 'new-tasks' : button.dataset.statGenerate;
+    const needsWorkbook = statKey === 'new-tasks' || statKey === 'completed-tasks';
+    const screenshotButton = screenshotActionButton(statKey);
+    const excelButton = statKey === 'new-tasks' ? document.getElementById('newTaskExcelButton') : document.querySelector(`[data-stat-upload="${statKey}"]`);
+    const screenshot = screenshotButton?._weeklyUploadFile || getWeeklyStatInput(statKey, 'screenshot') || newTaskScreenshot.files[0] || weeklyStatImages[statKey];
+    const excel = excelButton?._weeklyUploadFile || getWeeklyStatInput(statKey, 'excel') || newTaskExcel.files[0] || weeklyStatFiles[statKey];
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (weeklyStatJobs[statKey]) { openWeeklyStatFile(statKey); return; }
+    clearWeeklyInlineError(statKey);
+    if (!screenshot || (needsWorkbook && !excel)) {
+      showWeeklyInlineError(statKey, needsWorkbook ? '请先上传 Excel 并粘贴截图' : '请先粘贴截图');
+      return;
+    }
+    scanWeeklyGeneration(button);
+    if (needsWorkbook) void uploadNewTask(excel, screenshot, statKey, button);
+    else void uploadScreenshotStat(statKey, screenshot, button);
+    return;
+    /*
+    const statKey = button.id === 'newTaskGenerateButton' ? 'new-tasks' : button.dataset.statGenerate;
+    const needsWorkbook = statKey === 'new-tasks' || statKey === 'completed-tasks';
+    const screenshotButton = screenshotActionButton(statKey);
+    const excelButton = statKey === 'new-tasks'
+      ? document.getElementById('newTaskExcelButton')
+      : document.querySelector(`[data-stat-upload="${statKey}"]`);
+    const screenshot = screenshotButton?._weeklyUploadFile || getWeeklyStatInput(statKey, 'screenshot')
+      || (statKey === 'new-tasks' ? weeklyStatisticInputs['new-tasks-image'] || newTaskScreenshotFile : weeklyStatImages[statKey]);
+    const excel = excelButton?._weeklyUploadFile || getWeeklyStatInput(statKey, 'excel')
+      || (statKey === 'new-tasks' ? weeklyStatisticInputs['new-tasks-file'] || newTaskSource : weeklyStatFiles[statKey]);
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (weeklyStatJobs[statKey]) {
+      openWeeklyStatFile(statKey);
+      return;
+    }
+    clearWeeklyInlineError(statKey);
+    if (!screenshot || (needsWorkbook && !excel)) {
+      showWeeklyInlineError(statKey, needsWorkbook ? '请先上传 Excel 并粘贴截图' : '请先粘贴或选择截图');
+      return;
+    }
+    scanWeeklyGeneration(button);
+    if (needsWorkbook) uploadNewTask(excel, screenshot, statKey, button);
+    else uploadScreenshotStat(statKey, screenshot, button);
+    return;
+    */
+  }
+  const isScreenshotButton = button.id === 'newTaskPasteButton' || button.dataset.statPaste || (button.dataset.statUpload && button.dataset.statUpload !== 'completed-tasks');
+  // Screenshot controls only accept Ctrl+V. Handle the row selection here so
+  // the legacy handlers cannot switch the paste target to a different row.
+  if (isScreenshotButton && button.classList.contains('is-ready')) return;
+  if (isScreenshotButton) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    newTaskMode = true;
+    activeWeeklyStat = button.id === 'newTaskPasteButton'
+      ? 'new-tasks'
+      : (button.dataset.statPaste || button.dataset.statUpload);
+    pasteTargetStat = activeWeeklyStat;
+    button.textContent = '请按 Ctrl+V 粘贴';
+    button.classList.add('is-awaiting-paste');
+    clipboardPasteTarget.textContent = '';
+    clipboardPasteTarget.focus({ preventScroll: true });
+    document.getElementById('newTaskStatus').textContent = '请直接按 Ctrl+V 粘贴截图';
+    return;
+  }
+  if (button.id === 'newTaskExcelButton') {
+    activeWeeklyStat = 'new-tasks';
+    pasteTargetStat = '';
+  } else if (button.id === 'newTaskPasteButton') {
+    activeWeeklyStat = 'new-tasks';
+    pasteTargetStat = 'new-tasks';
+    button.textContent = 'Ctrl+V 或再次点击选择文件';
+    button.classList.add('is-awaiting-paste');
+  } else if (button.dataset.statUpload) {
+    activeWeeklyStat = button.dataset.statUpload;
+    pasteTargetStat = activeWeeklyStat === 'completed-tasks' ? '' : activeWeeklyStat;
+    if (activeWeeklyStat !== 'completed-tasks') {
+      button.textContent = 'Ctrl+V 或再次点击选择文件';
+      button.classList.add('is-awaiting-paste');
+    }
+  } else if (button.dataset.statPaste) {
+    activeWeeklyStat = button.dataset.statPaste;
+    pasteTargetStat = activeWeeklyStat;
+    button.textContent = '请按 Ctrl+V 粘贴';
+    button.classList.add('is-awaiting-paste');
+  }
+  newTaskMode = true;
+}, true);
+
+document.querySelectorAll('.weekly-action-button').forEach(button => button.addEventListener('click', event => {
+  if (!isClearClick(event, button)) return;
+  if (button.id === 'newTaskExcelButton') clearWeeklyInput(button, 'new-tasks');
+  else if (button.id === 'newTaskPasteButton') clearWeeklyInput(button, 'new-tasks');
+  else if (button.id === 'newTaskGenerateButton') clearGeneratedAction(button, 'new-tasks');
+  else if (button.dataset.statUpload) clearWeeklyInput(button, button.dataset.statUpload);
+  else if (button.dataset.statPaste) clearWeeklyInput(button, button.dataset.statPaste);
+  else if (button.dataset.statGenerate) clearGeneratedAction(button, button.dataset.statGenerate);
+  event.stopImmediatePropagation();
+}, true));
+
+document.querySelectorAll('.weekly-action-button').forEach(button => button.addEventListener('click', event => {
+  if (!button.classList.contains('is-ready') || isClearClick(event, button)) return;
+  const statKey = button.dataset.statUpload || button.dataset.statPaste;
+  if (button.id === 'newTaskExcelButton') previewWorkbook(button._weeklyUploadFile || newTaskSource || weeklyStatisticInputs['new-tasks-file'] || newTaskExcel.files[0]);
+  else if (button.id === 'newTaskPasteButton') previewScreenshot(button._weeklyUploadFile || newTaskScreenshotFile || weeklyStatisticInputs['new-tasks-image'] || newTaskScreenshot.files[0]);
+  else if (button.dataset.statUpload && statKey === 'completed-tasks') previewWorkbook(button._weeklyUploadFile || weeklyStatFiles[statKey] || getWeeklyStatInput(statKey, 'excel') || newTaskExcel.files[0]);
+  else if (statKey) previewScreenshot(button._weeklyUploadFile || weeklyStatImages[statKey] || getWeeklyStatInput(statKey, 'screenshot') || newTaskScreenshot.files[0]);
+  else return;
+  event.stopImmediatePropagation();
+}, true));
+
+function openWeeklyStatFile(statKey) {
+  const jobId = weeklyStatJobs[statKey];
+  if (jobId) window.location.href = `/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}/export`;
+}
+
+document.getElementById('newTaskGenerateButton').addEventListener('click', event => {
+  if (isClearClick(event, event.currentTarget) || !weeklyStatJobs['new-tasks']) return;
+  event.stopImmediatePropagation();
+  openWeeklyStatFile('new-tasks');
+}, true);
+document.querySelectorAll('[data-stat-generate]').forEach(button => button.addEventListener('click', event => {
+  const statKey = button.dataset.statGenerate;
+  if (isClearClick(event, button) || !weeklyStatJobs[statKey]) return;
+  event.stopImmediatePropagation();
+  openWeeklyStatFile(statKey);
+}, true));
+
+document.getElementById('newTaskPasteButton').addEventListener('click', event => {
+  if (isClearClick(event, event.currentTarget)) return;
+  newTaskMode = true; activeWeeklyStat = 'new-tasks'; pasteTargetStat = 'new-tasks';
+  document.getElementById('newTaskStatus').textContent = '请直接按 Ctrl+V 粘贴截图';
+  event.stopImmediatePropagation();
+}, true);
+document.querySelectorAll('[data-stat-upload], [data-stat-paste]').forEach(button => button.addEventListener('click', event => {
+  const statKey = button.dataset.statUpload || button.dataset.statPaste;
+  if (statKey === 'completed-tasks' && button.dataset.statUpload) return;
+  if (isClearClick(event, button)) return;
+  newTaskMode = true; activeWeeklyStat = statKey; pasteTargetStat = statKey;
+  document.getElementById('newTaskStatus').textContent = '请直接按 Ctrl+V 粘贴截图';
+  event.stopImmediatePropagation();
+}, true));
 
 document.getElementById('weeklyModeLink').classList.toggle('is-active', !isDaily);
 document.getElementById('dailyModeLink').classList.toggle('is-active', isDaily);
@@ -387,7 +875,9 @@ if (isDaily) {
   document.getElementById('anomalyTab').textContent = '人员备注';
 } 
 else {
-  weeklyUpload.hidden = false;
+  weeklyUpload.hidden = true;
+  drop.hidden = true;
+  weeklyNewTaskToolbar.hidden = false;
   document.getElementById('uploadTitle').textContent = '上传周报 ZIP 或选择数据目录';
   document.getElementById('uploadHint').textContent = '自动识别六类 Jira 导出文件，忽略 ~$ 临时文件并生成当前周统计。';
   document.getElementById('selectButton').hidden = true;
@@ -397,28 +887,223 @@ drop.addEventListener('click', event => { if (isDaily && !event.target.closest('
 document.getElementById('selectButton').addEventListener('click', event => { event.stopPropagation(); fileInput.click(); });
 document.getElementById('zipButton').addEventListener('click', () => zipFileInput.click());
 document.getElementById('directoryButton').addEventListener('click', () => directoryInput.click());
+document.getElementById('newTaskButton').addEventListener('click', () => { newTaskMode = true; activeWeeklyStat = 'new-tasks'; document.getElementById('newTaskStatus').textContent = '当前统计：本周新增任务数'; });
+document.getElementById('newTaskExcelButton').addEventListener('click', event => { if (isClearClick(event, event.currentTarget)) { clearWeeklyInput(event.currentTarget, 'new-tasks'); return; } activeWeeklyStat = 'new-tasks'; pasteTargetStat = ''; newTaskExcel.click(); });
+document.getElementById('newTaskPasteButton').addEventListener('click', event => { if (isClearClick(event, event.currentTarget)) { clearWeeklyInput(event.currentTarget, 'new-tasks'); return; } newTaskMode = true; activeWeeklyStat = 'new-tasks'; newTaskScreenshot.click(); });
+document.getElementById('newTaskGenerateButton').addEventListener('click', () => {
+  // The upload controls retain their files in weeklyStatisticInputs so a user
+  // can work on several rows in any order. Read that canonical state here.
+  const jiraFile = weeklyStatisticInputs['new-tasks-file'] || newTaskSource;
+  const screenshot = weeklyStatisticInputs['new-tasks-image'] || newTaskScreenshotFile;
+  if (jiraFile && screenshot) {
+    newTaskSource = jiraFile;
+    newTaskScreenshotFile = screenshot;
+    setWeeklyActionState(document.getElementById('newTaskGenerateButton'), '正在生成', 'processing');
+    uploadNewTask(jiraFile, screenshot);
+  } else {
+    document.getElementById('newTaskStatus').textContent = '请先上传 Excel 并选择截图';
+  }
+});
+document.querySelectorAll('[data-stat]').forEach(button => button.addEventListener('click', () => { newTaskMode = true; activeWeeklyStat = button.dataset.stat; document.getElementById('newTaskStatus').textContent = `当前统计项：${button.textContent}`; }));
+document.querySelectorAll('[data-stat-upload]').forEach(button => button.addEventListener('click', event => { activeWeeklyStat = button.dataset.statUpload; if (isClearClick(event, button)) { clearWeeklyInput(button, activeWeeklyStat); return; } newTaskMode = true; if (activeWeeklyStat === 'completed-tasks') pasteTargetStat = ''; (activeWeeklyStat === 'completed-tasks' ? newTaskExcel : newTaskScreenshot).click(); }));
+document.querySelectorAll('[data-stat-paste]').forEach(button => button.addEventListener('click', () => { newTaskMode = true; activeWeeklyStat = button.dataset.statPaste; newTaskScreenshot.click(); }));
+document.querySelectorAll('[data-stat-generate]').forEach(button => button.addEventListener('click', () => {
+  activeWeeklyStat = button.dataset.statGenerate;
+  const needsWorkbook = activeWeeklyStat === 'completed-tasks';
+  const ready = needsWorkbook ? weeklyStatFiles[activeWeeklyStat] && weeklyStatImages[activeWeeklyStat] : weeklyStatImages[activeWeeklyStat];
+  if (!ready) document.getElementById('newTaskStatus').textContent = needsWorkbook ? '请先上传 Excel 并粘贴截图' : '请先粘贴截图';
+}));
 drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); (isDaily ? fileInput : zipFileInput).click(); } });
 fileInput.addEventListener('change', () => { if (fileInput.files.length) upload(fileInput.files[0]); });
 zipFileInput.addEventListener('change', () => { if (zipFileInput.files.length) uploadWeekly(Array.from(zipFileInput.files)); });
 directoryInput.addEventListener('change', () => { if (directoryInput.files.length) uploadWeekly(Array.from(directoryInput.files)); });
+newTaskExcel.addEventListener('change', () => { if (newTaskExcel.files.length) { pasteTargetStat = ''; const inputKey = activeWeeklyStat === 'new-tasks' ? 'new-tasks-file' : activeWeeklyStat; weeklyStatisticInputs[inputKey] = newTaskExcel.files[0]; if (activeWeeklyStat === 'new-tasks') { newTaskSource = newTaskExcel.files[0]; setWeeklyActionState(document.getElementById('newTaskExcelButton'), '已选文件'); } else { weeklyStatFiles[activeWeeklyStat] = newTaskExcel.files[0]; setWeeklyActionState(document.querySelector(`[data-stat-upload="${activeWeeklyStat}"]`), '已选文件'); } document.getElementById('newTaskStatus').textContent = '文件已保存，可继续处理其他统计项'; } });
+newTaskScreenshot.addEventListener('change', () => { if (newTaskScreenshot.files.length) { const inputKey = activeWeeklyStat === 'new-tasks' ? 'new-tasks-image' : activeWeeklyStat; weeklyStatisticInputs[inputKey] = newTaskScreenshot.files[0]; if (activeWeeklyStat === 'new-tasks') { newTaskScreenshotFile = newTaskScreenshot.files[0]; setWeeklyActionState(document.getElementById('newTaskPasteButton'), '已选截图'); } else { weeklyStatImages[activeWeeklyStat] = newTaskScreenshot.files[0]; setWeeklyActionState(screenshotActionButton(activeWeeklyStat), '已选截图'); } document.getElementById('newTaskStatus').textContent = '截图已保存，可继续处理其他统计项'; } });
+let lastImagePasteAt = 0;
+document.addEventListener('paste', async event => {
+  if (!newTaskMode || !pasteTargetStat) return;
+  const imageFile = clipboardImageFile(event);
+  if (!imageFile) {
+    showWeeklyInlineError(pasteTargetStat, '未检测到截图，请先复制图片后再按 Ctrl+V');
+    return;
+  }
+  lastImagePasteAt = Date.now();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const statKey = pasteTargetStat;
+  const scanButton = screenshotActionButton(statKey);
+  scanWeeklyScreenshot(scanButton);
+  const scanVersion = scanButton?._weeklyInputVersion || 0;
+  clearWeeklyInlineError(statKey);
+  activeWeeklyStat = statKey;
+  const inputKey = activeWeeklyStat === 'new-tasks' ? 'new-tasks-image' : activeWeeklyStat;
+  weeklyStatisticInputs[inputKey] = imageFile;
+  retainPastedScreenshot(weeklyStatisticInputs[inputKey]);
+  if (activeWeeklyStat === 'new-tasks') { newTaskScreenshotFile = weeklyStatisticInputs[inputKey]; }
+  else { weeklyStatImages[activeWeeklyStat] = weeklyStatisticInputs[inputKey]; }
+  saveWeeklyStatInput(statKey, 'screenshot', weeklyStatisticInputs[inputKey]);
+  if (scanButton) scanButton._weeklyUploadFile = weeklyStatisticInputs[inputKey];
+  completeWeeklyGeneration(scanButton, '已粘贴截图');
+  document.getElementById('newTaskStatus').textContent = '截图已粘贴，可继续处理其他统计项';
+  // Keep the UI responsive while OCR validates the title. A failed check
+  // removes the optimistic preview and blocks generation through the same
+  // per-row state used by the generate handler.
+  Promise.race([
+    validateScreenshotTitle(statKey, imageFile),
+    wait(5000).then(() => ({ pending: true }))
+  ]).then(result => {
+    if (result?.pending || scanButton?._weeklyInputVersion !== scanVersion) return;
+  }).catch(error => {
+    if (scanButton?._weeklyInputVersion !== scanVersion) return;
+    clearWeeklyInput(scanButton, statKey);
+    showWeeklyInlineError(statKey, error.message || '截图标题校验失败');
+  });
+});
+document.addEventListener('keydown', event => {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'v' || !newTaskMode || !pasteTargetStat) return;
+  const attemptAt = Date.now();
+  window.setTimeout(async () => {
+    if (lastImagePasteAt >= attemptAt || !navigator.clipboard?.read) return;
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find(type => type.startsWith('image/'));
+        if (!imageType || lastImagePasteAt >= attemptAt) continue;
+        const blob = await item.getType(imageType);
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([blob], 'clipboard.png', { type: imageType }));
+        clipboardPasteTarget.dispatchEvent(new ClipboardEvent('paste', {
+          bubbles: true, cancelable: true, clipboardData: transfer
+        }));
+        return;
+      }
+    } catch (_) {
+      // Direct paste remains available where clipboard-read permission is denied.
+    }
+  }, 120);
+}, true);
+// Keep the files used for generation in one state object. These listeners run
+// after the UI handlers above, so changing rows cannot make a visible upload
+// disappear from the corresponding generate action.
+newTaskExcel.addEventListener('change', () => {
+  if (!newTaskExcel.files.length) return;
+  saveWeeklyStatInput(activeWeeklyStat, 'excel', newTaskExcel.files[0]);
+  const button = activeWeeklyStat === 'new-tasks'
+    ? document.getElementById('newTaskExcelButton')
+    : document.querySelector(`[data-stat-upload="${activeWeeklyStat}"]`);
+  if (button) {
+    button._weeklyUploadFile = newTaskExcel.files[0];
+    scanWeeklyUpload(button, '已选文件');
+  }
+}, true);
+newTaskScreenshot.addEventListener('change', () => {
+  if (!newTaskScreenshot.files.length) return;
+  saveWeeklyStatInput(activeWeeklyStat, 'screenshot', newTaskScreenshot.files[0]);
+  const button = screenshotActionButton(activeWeeklyStat);
+  if (button) {
+    button._weeklyUploadFile = newTaskScreenshot.files[0];
+    scanWeeklyUpload(button, '已选截图');
+  }
+});
 drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('is-dragging'); });
 drop.addEventListener('dragleave', event => { if (!drop.contains(event.relatedTarget)) drop.classList.remove('is-dragging'); });
 drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('is-dragging'); if (!event.dataTransfer.files.length) return; const files = Array.from(event.dataTransfer.files); if (isDaily) upload(files[0]); else uploadWeekly(files); });
 document.getElementById('clearButton').addEventListener('click', reset);
-downloadButton.addEventListener('click', () => { if (!currentJobId) return; const endpoint = isDaily ? `/api/jira/jobs/${encodeURIComponent(currentJobId)}/export` : `/api/jira/weekly-statistics/jobs/${encodeURIComponent(currentJobId)}/export`; window.location.href = endpoint; });
+document.getElementById('newTaskGenerateButton').addEventListener('click', event => {
+  if (isClearClick(event, event.currentTarget)) {
+    currentJobId = '';
+    currentResult = null;
+    setWeeklyActionState(event.currentTarget, '生成文件');
+    document.getElementById('newTaskStatus').textContent = '结果已移除，可重新生成';
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (generatedStatKey !== 'new-tasks' || !currentJobId || !currentResult) return;
+  event.stopImmediatePropagation();
+  window.location.href = `/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(currentJobId)}/export`;
+}, true);
+downloadButton.addEventListener('click', () => { if (!currentJobId) return; const endpoint = newTaskMode ? `/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(currentJobId)}/export` : isDaily ? `/api/jira/jobs/${encodeURIComponent(currentJobId)}/export` : `/api/jira/weekly-statistics/jobs/${encodeURIComponent(currentJobId)}/export`; window.location.href = endpoint; });
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => showView(tab.dataset.view, tab)));
+document.querySelectorAll('[data-stat-generate]').forEach(button => button.addEventListener('click', event => {
+  const statKey = button.dataset.statGenerate;
+  if (generatedStatKey !== statKey || !currentJobId || !currentResult) return;
+  if (isClearClick(event, button)) {
+    currentJobId = ''; currentResult = null; generatedStatKey = '';
+    setWeeklyActionState(button, '生成文件');
+    event.stopImmediatePropagation();
+    return;
+  }
+  event.stopImmediatePropagation();
+  window.location.href = `/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(currentJobId)}/export`;
+}, true));
+document.querySelectorAll('[data-stat-generate]').forEach(button => button.addEventListener('click', () => {
+  const statKey = button.dataset.statGenerate;
+  if (statKey === 'completed-tasks' && weeklyStatFiles[statKey] && weeklyStatImages[statKey]) {
+    setWeeklyActionState(button, '正在生成', 'processing');
+    uploadNewTask(weeklyStatFiles[statKey], weeklyStatImages[statKey], statKey, button);
+  } else if (statKey !== 'completed-tasks' && weeklyStatImages[statKey]) {
+    setWeeklyActionState(button, '正在生成', 'processing');
+    uploadScreenshotStat(statKey, weeklyStatImages[statKey], button);
+  }
+}));
+// Generate from the same per-row state that drives the "uploaded" label.
+// This capture handler prevents the legacy bubble handlers below from
+// overwriting the action with a stale "please paste" message.
+document.querySelectorAll('[data-stat-generate], #newTaskGenerateButton').forEach(button => button.addEventListener('click', event => {
+  const statKey = button.id === 'newTaskGenerateButton' ? 'new-tasks' : button.dataset.statGenerate;
+  if (isClearClick(event, button) || weeklyStatJobs[statKey]) return;
+  const screenshotButton = screenshotActionButton(statKey);
+  const excelButton = statKey === 'new-tasks'
+    ? document.getElementById('newTaskExcelButton')
+    : document.querySelector(`[data-stat-upload="${statKey}"]`);
+  const screenshot = screenshotButton?._weeklyUploadFile || getWeeklyStatInput(statKey, 'screenshot') || newTaskScreenshot.files[0]
+    || (statKey === 'new-tasks' ? weeklyStatisticInputs['new-tasks-image'] || newTaskScreenshotFile : weeklyStatImages[statKey]);
+  const excel = excelButton?._weeklyUploadFile || getWeeklyStatInput(statKey, 'excel')
+    || (statKey === 'new-tasks' ? weeklyStatisticInputs['new-tasks-file'] || newTaskSource : weeklyStatFiles[statKey]);
+  const needsWorkbook = statKey === 'new-tasks' || statKey === 'completed-tasks';
+  event.stopImmediatePropagation();
+  clearWeeklyInlineError(statKey);
+  if (!screenshot || (needsWorkbook && !excel)) {
+    showWeeklyInlineError(statKey, needsWorkbook ? '请先上传 Excel 并粘贴截图' : '请先粘贴截图');
+    return;
+  }
+  scanWeeklyGeneration(button);
+  if (needsWorkbook) uploadNewTask(excel, screenshot, statKey, button);
+  else uploadScreenshotStat(statKey, screenshot, button);
+}, true));
+
+document.getElementById('weeklySummaryButton').addEventListener('click', async event => {
+  const button = document.getElementById('weeklySummaryButton');
+  if (isClearClick(event, button)) {
+    button.textContent = button.dataset.defaultLabel || '整合生成';
+    button.classList.remove('is-ready', 'is-processing');
+    document.getElementById('newTaskStatus').textContent = '整合结果已移除，可重新生成';
+    return;
+  }
+  scanWeeklyGeneration(button);
+  try {
+    const response = await fetch('/api/jira/weekly-summary/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(weeklyStatResults) });
+    if (!response.ok) { const data = await response.json(); throw new Error(data.detail || response.statusText); }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'Jira周报统计汇总.xlsx'; link.click();
+    URL.revokeObjectURL(url);
+    completeWeeklyGeneration(button, '已生成');
+  } catch (error) { cancelWeeklyScan(button); setWeeklyActionState(button, '整合生成'); document.getElementById('newTaskStatus').textContent = error.message || '整合生成失败'; }
+});
 
 async function upload(file) {
+  newTaskMode = false;
   if (!file.name.toLowerCase().endsWith('.xlsx')) { showError('请选择 Jira 导出的 .xlsx 文件'); return; }
   currentJobId = ''; currentResult = null; downloadButton.disabled = true;
   document.querySelectorAll('.view-panel').forEach(view => { view.innerHTML = ''; });
-  drop.hidden = true; progress.hidden = false; workspace.hidden = true; setProgress({ percent: 0, stage: '上传文件', detail: '正在上传 Excel 文件' });
+  drop.hidden = true; progress.hidden = false; workspace.hidden = true; setProgress({ percent: 2, stage: '上传文件', detail: '正在上传 Excel 文件' });
   const body = new FormData(); body.append('file', file);
   try {
-    const data = await window.uploadFormData(`/api/jira/import?mode=${jiraMode}`, body, (loaded, total) => {
-      const percent = total ? Math.min(99, Math.round(loaded / total * 100)) : 0;
-      setProgress({ percent, stage: '上传文件', detail: `已上传 ${formatSize(loaded)} / ${formatSize(total)}` });
-    });
+    const response = await fetch(`/api/jira/import?mode=${jiraMode}`, { method: 'POST', body });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
     currentJobId = data.job_id;
     await poll(data.job_id);
   } catch (error) { showError(error.message || '上传失败'); }
@@ -426,18 +1111,18 @@ async function upload(file) {
 }
 
 async function uploadWeekly(files) {
+  newTaskMode = false;
   const valid = files.filter(file => file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.zip'));
   if (!valid.length) { showError('请选择周报 ZIP 或包含 Excel 的目录'); return; }
   currentJobId = ''; currentResult = null; downloadButton.disabled = true;
   document.getElementById('weeklyFiles').textContent = `已选择 ${valid.length} 个文件：${valid.map(file => file.name).join('、')}`;
   drop.hidden = true; weeklyUpload.hidden = true; progress.hidden = false; workspace.hidden = true;
-  setProgress({ percent: 0, stage: '上传文件', detail: '正在上传周报 ZIP/目录数据' });
+  setProgress({ percent: 2, stage: '上传文件', detail: '正在上传周报 ZIP/目录数据' });
   const body = new FormData(); valid.forEach(file => body.append('files', file, file.webkitRelativePath || file.name));
   try {
-    const data = await window.uploadFormData('/api/jira/weekly-statistics/import', body, (loaded, total) => {
-      const percent = total ? Math.min(99, Math.round(loaded / total * 100)) : 0;
-      setProgress({ percent, stage: '上传文件', detail: `已上传 ${formatSize(loaded)} / ${formatSize(total)}` });
-    });
+    const response = await fetch('/api/jira/weekly-statistics/import', { method: 'POST', body });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
     currentJobId = data.job_id;
     await pollWeekly(data.job_id);
   } catch (error) { showError(error.message || '周报统计失败'); }
@@ -456,19 +1141,82 @@ async function pollWeekly(jobId) {
   }
 }
 
+async function uploadNewTask(jiraFile, screenshot, statKey = 'new-tasks', actionButton = document.getElementById('newTaskGenerateButton')) {
+  const generationVersion = actionButton._weeklyInputVersion || 0;
+  newTaskMode = true; currentJobId = ''; currentResult = null; downloadButton.disabled = true;
+  drop.hidden = true; weeklyUpload.hidden = true; progress.hidden = false; workspace.hidden = true;
+  setProgress({ percent: 5, stage: '上传文件', detail: '正在上传 Jira Excel 和统计截图' });
+  const body = new FormData(); body.append('jira_file', jiraFile); body.append('screenshot', screenshot);
+  try {
+    const { response, data } = await postFormJson(`/api/jira/weekly-new-tasks/import?stat_key=${encodeURIComponent(statKey)}`, body, 90000);
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    const jobId = data.job_id;
+    currentJobId = jobId;
+    const pollingDeadline = Date.now() + 120000;
+    while (true) {
+      if (Date.now() > pollingDeadline) throw new Error('统计处理超时，请检查截图和 Excel 后重试');
+      await wait(450);
+      const { response: statusResponse, data: status } = await getJson(`/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}`, 30000);
+      if (!statusResponse.ok) throw new Error(status.detail || statusResponse.statusText);
+      updateWeeklyGenerationProgress(actionButton, status.progress);
+      setProgress(status.progress || {});
+      if (status.status === 'done') { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); weeklyStatJobs[statKey] = jobId; completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); generatedStatKey = statKey; currentResult = status.result; weeklyStatResults[statKey] = status.result.summary || []; if (statKey === 'new-tasks') renderNewTask(status.result); break; }
+      if (status.status === 'error') throw new Error(status.error || '本周新增任务统计失败');
+    }
+  } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { workspace.hidden = true; showWeeklyInlineError(statKey, error.message || '统计生成失败'); cancelWeeklyScan(actionButton); } }
+  finally { newTaskExcel.value = ''; newTaskScreenshot.value = ''; newTaskSource = null; newTaskScreenshotFile = null; newTaskMode = false; drop.hidden = true; weeklyUpload.hidden = true; progress.hidden = true; weeklyNewTaskToolbar.hidden = false; }
+}
+
+async function uploadScreenshotStat(statKey, screenshot, actionButton) {
+  const generationVersion = actionButton._weeklyInputVersion || 0;
+  newTaskMode = true; currentJobId = ''; currentResult = null; generatedStatKey = '';
+  const body = new FormData(); body.append('screenshot', screenshot);
+  try {
+    const { response, data } = await postFormJson(`/api/jira/weekly-screenshot-stats/${encodeURIComponent(statKey)}/import`, body, 90000);
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    const jobId = data.job_id;
+    currentJobId = jobId;
+    const pollingDeadline = Date.now() + 120000;
+    while (true) {
+      if (Date.now() > pollingDeadline) throw new Error('截图统计处理超时，请重试');
+      await wait(450);
+      const { response: statusResponse, data: status } = await getJson(`/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}`, 30000);
+      if (!statusResponse.ok) throw new Error(status.detail || statusResponse.statusText);
+      updateWeeklyGenerationProgress(actionButton, status.progress);
+      if (status.status === 'done') { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); currentResult = status.result; weeklyStatJobs[statKey] = jobId; weeklyStatResults[statKey] = status.result.summary || []; generatedStatKey = statKey; completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); break; }
+      if (status.status === 'error') throw new Error(status.error || '统计生成失败');
+    }
+  } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { showWeeklyInlineError(statKey, error.message || '统计生成失败'); cancelWeeklyScan(actionButton); } }
+}
+
+function renderNewTask(result) {
+  workspace.hidden = true;
+  downloadButton.disabled = true;
+  document.getElementById('sourceName').textContent = '本周新增任务统计';
+  document.getElementById('summaryNotice').textContent = `已检查 ${result.mismatches?.length || 0} 条开发人员与经办人不一致的任务，并按开发人员修正数量。`;
+  document.getElementById('totalStat').textContent = result.summary?.reduce((sum, item) => sum + Number(item['本周新增任务数'] || 0), 0) || 0;
+  document.getElementById('includedStat').textContent = result.summary?.length || 0;
+  document.getElementById('pendingStat').textContent = result.mismatches?.length || 0;
+  document.getElementById('mismatchStat').textContent = '—';
+  document.getElementById('resultsCopy').textContent = '按截图合计数量调整人员归属后的本周新增任务数。';
+  const summary = document.getElementById('summaryView');
+  const total = (result.summary || []).reduce((sum, item) => sum + Number(item['本周新增任务数'] || 0), 0);
+  summary.innerHTML = `<div class="table-scroll"><table class="summary-table"><thead><tr><th>姓名</th><th>本周新增任务数</th></tr></thead><tbody>${(result.summary || []).map(item => `<tr><td><strong>${esc(item['姓名'])}</strong></td><td>${item['本周新增任务数']}</td></tr>`).join('')}<tr><td><strong>合计</strong></td><td><strong>${total}</strong></td></tr></tbody></table></div>`;
+  const detail = document.getElementById('detailView');
+  detail.innerHTML = `<div class="table-scroll"><table><thead><tr><th>问题关键字</th><th>原经办人</th><th>调整后开发人员</th></tr></thead><tbody>${(result.mismatches || []).map(item => `<tr><td>${esc(item.issue_key)}</td><td>${esc(item.assignee)}</td><td>${esc(item.developer)}</td></tr>`).join('')}</tbody></table></div>`;
+  showView('summaryView', document.querySelector('.tab[data-view="summaryView"]'));
+}
+
 function renderWeekly(source, result) {
   workspace.hidden = false; downloadButton.disabled = false;
   document.getElementById('sourceName').textContent = source || '周报 ZIP/目录';
-  const warnings = result.warnings || [];
-  const warningText = warnings.length ? `；提醒：${warnings.map(item => item.detail).join('；')}` : '';
-  document.getElementById('summaryNotice').textContent = `报告日期：${result.report_date || '—'}；已处理 ${result.stats?.total_rows || 0} 条 Jira 记录，异常 ${result.stats?.anomaly_count || 0} 条${warningText}。`;
-  document.getElementById('summaryNotice').className = `notice${warnings.length ? ' is-warn' : ''}`;
+  document.getElementById('summaryNotice').textContent = `报告日期：${result.report_date || '—'}；已处理 ${result.stats?.total_rows || 0} 条 Jira 记录，异常 ${result.stats?.anomaly_count || 0} 条。`;
   document.getElementById('resultsCopy').textContent = '当前周 23 人统计、延期/挂起明细和异常清单。';
   document.getElementById('totalStat').textContent = result.stats?.total_rows || 0;
   document.getElementById('includedStat').textContent = result.summary?.length || 0;
-  document.getElementById('pendingStat').textContent = result.stats?.warning_count || 0;
+  document.getElementById('pendingStat').textContent = result.stats?.anomaly_count || 0;
   document.getElementById('mismatchStat').textContent = result.report_date || '—';
-  renderWeeklySummary(result.summary || []); renderWeeklyDetails(result.sections || {}); renderAnomalies([...warnings, ...(result.anomalies || [])]); renderMapping({来源文件: {header: Object.values(result.source_files || {}).join('、'), column: '', found: true}});
+  renderWeeklySummary(result.summary || []); renderWeeklyDetails(result.sections || {}); renderAnomalies(result.anomalies || []); renderMapping({来源文件: {header: Object.values(result.source_files || {}).join('、'), column: '', found: true}});
   showView('summaryView', document.querySelector('.tab[data-view="summaryView"]'));
 }
 
@@ -665,6 +1413,56 @@ function reset() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+function postFormJson(url, body, timeoutMs = 90000) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const finish = (fn, value) => { if (settled) return; settled = true; fn(value); };
+    xhr.open('POST', url, true);
+    xhr.timeout = timeoutMs;
+    const handleResponse = () => {
+      if (xhr.readyState !== 4) return;
+      let data = {};
+      try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch (_) { data = { detail: xhr.responseText || '服务器返回了无法读取的结果' }; }
+      finish(resolve, { response: { ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, statusText: xhr.statusText }, data });
+    };
+    xhr.onload = handleResponse;
+    xhr.onreadystatechange = handleResponse;
+    xhr.onerror = () => finish(reject, new Error('上传请求失败，请检查本地服务是否正常运行'));
+    xhr.ontimeout = () => finish(reject, new Error('上传处理超时，请重新粘贴截图后重试'));
+    xhr.send(body);
+  });
+}
+function getJson(url, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const finish = (fn, value) => { if (settled) return; settled = true; fn(value); };
+    xhr.open('GET', url, true);
+    xhr.timeout = timeoutMs;
+    const handleResponse = () => {
+      if (xhr.readyState !== 4) return;
+      let data = {};
+      try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch (_) { data = { detail: xhr.responseText || '服务器返回了无法读取的结果' }; }
+      finish(resolve, { response: { ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, statusText: xhr.statusText }, data });
+    };
+    xhr.onload = handleResponse;
+    xhr.onreadystatechange = handleResponse;
+    xhr.onerror = () => finish(reject, new Error('读取处理进度失败，请检查本地服务是否正常运行'));
+    xhr.ontimeout = () => finish(reject, new Error('读取处理进度超时，请重试'));
+    xhr.send();
+  });
+}
 function esc(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 </script>
 </body>

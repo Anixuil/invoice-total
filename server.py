@@ -14,6 +14,7 @@ API:
   GET  /api/weekly-report/jobs/{id} 轮询周报处理进度
 """
 
+import asyncio
 import base64
 import stat
 import shutil
@@ -27,10 +28,9 @@ from pathlib import Path
 from pathlib import PurePosixPath
 
 import fitz
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.concurrency import run_in_threadpool
 
 from invoice_total import Extractor, sum_money
 from jira_processor import (
@@ -41,6 +41,12 @@ from jira_processor import (
     discover_weekly_files,
     export_weekly_statistics_xlsx,
     process_weekly_statistics,
+    process_new_task_statistics,
+    process_screenshot_statistics,
+    export_new_task_statistics_xlsx,
+    export_combined_weekly_statistics_xlsx,
+    preview_jira_workbook,
+    validate_screenshot_metric,
 )
 from weekly_report_processor import (
     build_weekly_meeting_document,
@@ -53,6 +59,7 @@ from reimbursement_generator import (
     render_reimbursement_pdf,
     validate_reimbursement_pdf,
 )
+from image_ppt_processor import build_image_presentation, validate_image_presentation
 
 app = FastAPI(title="本地文件处理工具", version="1.1.0")
 
@@ -63,8 +70,7 @@ MAX_FILES = 50
 MAX_ARCHIVE_UNPACKED_SIZE = 200 * 1024 * 1024  # ZIP 展开总量 200MB
 WEEKLY_MAX_SIZE = 500 * 1024 * 1024  # 部门周报 ZIP/PPTX 单文件 500MB
 WEEKLY_MAX_ARCHIVE_UNPACKED_SIZE = 2 * 1024 * 1024 * 1024  # 部门周报 ZIP 展开总量 2GB
-REIMBURSEMENT_MAX_SIZE = 50 * 1024 * 1024  # 报销信息 DOCX 50MB
-READ_CHUNK_SIZE = 8 * 1024 * 1024
+READ_CHUNK_SIZE = 1024 * 1024
 MAX_PREVIEW_PAGES = 100
 PREVIEW_SCALE = 1.5
 PREVIEW_JPEG_QUALITY = 76
@@ -80,10 +86,17 @@ WEEKLY_JIRA_JOB_TTL = 60 * 60
 WEEKLY_JIRA_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_weekly_jira_jobs"
 WEEKLY_JIRA_JOBS = {}
 WEEKLY_JIRA_JOBS_LOCK = threading.Lock()
+NEW_TASK_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_new_task_jobs"
+NEW_TASK_JOBS = {}
+NEW_TASK_JOBS_LOCK = threading.Lock()
 WEEKLY_JOB_TTL = 60 * 60
 WEEKLY_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_weekly_jobs"
 WEEKLY_JOBS = {}
 WEEKLY_JOBS_LOCK = threading.Lock()
+IMAGE_PPT_JOB_TTL = 60 * 60
+IMAGE_PPT_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_image_ppt_jobs"
+IMAGE_PPT_JOBS = {}
+IMAGE_PPT_JOBS_LOCK = threading.Lock()
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -121,7 +134,7 @@ async def index():
 
 @app.get("/jira")
 async def jira_index():
-    return FileResponse(STATIC / "jira.html")
+    return FileResponse(STATIC / "jira.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 @app.get("/weekly-report")
@@ -134,6 +147,73 @@ async def reimbursement_index():
     return FileResponse(STATIC / "reimbursement.html")
 
 
+@app.get("/image-to-ppt")
+async def image_to_ppt_index():
+    return FileResponse(STATIC / "image-to-ppt.html")
+
+
+def _cleanup_image_ppt_jobs() -> None:
+    now = time.time()
+    expired = []
+    with IMAGE_PPT_JOBS_LOCK:
+        for job_id, job in IMAGE_PPT_JOBS.items():
+            if now - job.get("updated_at", now) > IMAGE_PPT_JOB_TTL:
+                expired.append((job_id, job.get("directory")))
+        for job_id, _ in expired:
+            IMAGE_PPT_JOBS.pop(job_id, None)
+    for _, directory in expired:
+        if directory:
+            shutil.rmtree(directory, ignore_errors=True)
+
+
+@app.post("/api/image-to-ppt/generate")
+async def generate_image_presentation(file: UploadFile = File(...)):
+    """Create a visually faithful one-slide PPTX from a raster reference image."""
+    _cleanup_image_ppt_jobs()
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        await file.close()
+        raise HTTPException(status_code=400, detail="请上传 PNG、JPG、JPEG 或 WEBP 图片")
+    IMAGE_PPT_JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    job_id = uuid.uuid4().hex
+    directory = Path(tempfile.mkdtemp(prefix=f"{job_id}_", dir=IMAGE_PPT_JOB_ROOT))
+    source = directory / f"source{suffix}"
+    normalised = directory / "source-normalised.png"
+    output = directory / "图片转PPT.pptx"
+    try:
+        size, _ = await _save_upload(file, source, max_size=MAX_SIZE)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="图片内容为空")
+        if size > MAX_SIZE:
+            raise HTTPException(status_code=413, detail="图片不能超过 20MB")
+        expected = build_image_presentation(source, output, normalised)
+        validation = validate_image_presentation(output, normalised, expected)
+        if not validation["ok"]:
+            raise HTTPException(status_code=422, detail=f"PPT 核验未通过：{'、'.join(validation['issues'])}")
+        with IMAGE_PPT_JOBS_LOCK:
+            IMAGE_PPT_JOBS[job_id] = {"directory": str(directory), "output": str(output), "updated_at": time.time()}
+        return {"validation": validation, "download_url": f"/api/image-to-ppt/jobs/{job_id}/download"}
+    except HTTPException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=f"无法处理图片：{exc}") from exc
+    finally:
+        await file.close()
+
+
+@app.get("/api/image-to-ppt/jobs/{job_id}/download")
+async def download_image_presentation(job_id: str):
+    _cleanup_image_ppt_jobs()
+    with IMAGE_PPT_JOBS_LOCK:
+        job = IMAGE_PPT_JOBS.get(job_id)
+        output = Path(job.get("output", "")) if job else None
+    if output is None or not output.is_file():
+        raise HTTPException(status_code=404, detail="生成结果不存在或已清理，请重新上传图片")
+    return FileResponse(output, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", filename="图片转PPT.pptx")
+
+
 @app.post("/api/reimbursement/generate")
 async def generate_reimbursement(file: UploadFile = File(...)):
     """Create a reimbursement PDF from the exported DOCX label/value document."""
@@ -142,9 +222,9 @@ async def generate_reimbursement(file: UploadFile = File(...)):
     directory = Path(tempfile.mkdtemp(prefix="reimbursement_"))
     try:
         source = directory / "source.docx"
-        size, _ = await _save_upload(file, source, max_size=REIMBURSEMENT_MAX_SIZE)
-        if size > REIMBURSEMENT_MAX_SIZE:
-            raise HTTPException(status_code=413, detail="报销信息文件不能超过 50MB")
+        size, _ = await _save_upload(file, source, max_size=10 * 1024 * 1024)
+        if size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="报销信息文件不能超过 10MB")
         try:
             reimbursement = parse_reimbursement_docx(source)
             if not reimbursement.fields.get("claimant"):
@@ -181,25 +261,12 @@ async def generate_reimbursement(file: UploadFile = File(...)):
 
 def _safe_name(raw_name: str) -> str:
     """只保留用户可见的文件名，避免把上传路径带入结果。"""
-    return Path(_repair_filename_encoding(raw_name).replace("\\", "/")).name.strip() or "unnamed"
-
-
-def _repair_filename_encoding(raw_name: str) -> str:
-    """修复 multipart 客户端把 UTF-8 文件名错误按 Latin-1 传递造成的乱码。"""
-    if not isinstance(raw_name, str):
-        return str(raw_name)
-    try:
-        repaired = raw_name.encode("latin-1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return raw_name
-    # 只有结果明显改善时才替换，避免破坏本来就是 Latin-1 的文件名。
-    mojibake_markers = ("Ã", "Â", "Ä", "Å", "Æ", "Ç", "Ð", "Ñ", "Ò", "Ó", "Ô", "Õ", "Ö", "Ø", "Ù", "Ú", "Û", "Ü", "Ý", "à", "á", "â", "ã", "ä", "å", "æ", "ç", "è", "é", "ê", "ë", "ì", "í", "î", "ï", "ð", "ñ", "ò", "ó", "ô", "õ", "ö", "÷", "ø", "ù", "ú", "û", "ü", "ý", "þ")
-    return repaired if any(marker in raw_name for marker in mojibake_markers) else raw_name
+    return Path(raw_name.replace("\\", "/")).name.strip() or "unnamed"
 
 
 def _safe_archive_member_name(raw_name: str) -> str:
     """规范化 ZIP 成员名；拒绝绝对路径和 ..，防止路径穿越。"""
-    normalized = _repair_filename_encoding(raw_name).replace("\\", "/")
+    normalized = raw_name.replace("\\", "/")
     path = PurePosixPath(normalized)
     if path.is_absolute() or any(part == ".." for part in path.parts):
         raise ValueError("压缩包包含不安全的目录路径")
@@ -215,12 +282,12 @@ def _safe_upload_name(raw_name: str) -> str:
         return _safe_name(raw_name)
 
 
-def _copy_upload_file(source, path: Path, max_size: int) -> tuple[int, bytes]:
-    """在单个线程任务中完成整段上传拷贝，避免每个分块都调度线程池。"""
+async def _save_upload(upload: UploadFile, path: Path, max_size: int = MAX_SIZE) -> tuple[int, bytes]:
+    """将上传流写入临时文件，并返回大小与文件头。"""
     size = 0
     prefix = bytearray()
     with path.open("wb") as output:
-        while chunk := source.read(READ_CHUNK_SIZE):
+        while chunk := await upload.read(READ_CHUNK_SIZE):
             size += len(chunk)
             if size > max_size:
                 return size, bytes(prefix)
@@ -228,12 +295,6 @@ def _copy_upload_file(source, path: Path, max_size: int) -> tuple[int, bytes]:
                 prefix.extend(chunk[: 1024 - len(prefix)])
             output.write(chunk)
     return size, bytes(prefix)
-
-
-async def _save_upload(upload: UploadFile, path: Path, max_size: int = MAX_SIZE) -> tuple[int, bytes]:
-    """将上传流写入临时文件，并返回大小与文件头。"""
-    await upload.seek(0)
-    return await run_in_threadpool(_copy_upload_file, upload.file, path, max_size)
 
 
 def _result_for_pdf(path: Path, display_name: str):
@@ -464,7 +525,7 @@ async def upload(background_tasks: BackgroundTasks, files: list[UploadFile] = Fi
                     add_result({"file": name, "ok": False, "error": "仅支持 PDF 或 ZIP 文件"}, entry)
                     continue
 
-                with zipfile.ZipFile(path, metadata_encoding="gbk") as archive:
+                with zipfile.ZipFile(path) as archive:
                     infos, manifest = _archive_pdf_infos(archive)
                     source["entries"] = manifest
                     source["pdf_count"] = len(infos)
@@ -588,8 +649,7 @@ def _weekly_jira_job_response(job: dict) -> dict:
 def _extract_weekly_jira_zip(archive_path: Path, target_dir: Path) -> list[Path]:
     paths = []
     expanded_size = 0
-    # 国内常见压缩软件生成的 ZIP 未设置 UTF-8 标记，文件名通常使用 GBK。
-    with zipfile.ZipFile(archive_path, metadata_encoding="gbk") as archive:
+    with zipfile.ZipFile(archive_path) as archive:
         for info in archive.infolist():
             if info.is_dir() or not info.filename.lower().endswith(".xlsx"):
                 continue
@@ -630,7 +690,7 @@ def _process_weekly_jira_job(job_id: str) -> None:
         result = process_weekly_statistics(sources, progress_callback=on_progress)
         target = Path(job["directory"]) / "weekly-jira-statistics.xlsx"
         export_weekly_statistics_xlsx(result, target)
-        result["source_files"] = {key: path.name if path else "未上传" for key, path in sources.items()}
+        result["source_files"] = {key: path.name for key, path in sources.items()}
         with WEEKLY_JIRA_JOBS_LOCK:
             current = WEEKLY_JIRA_JOBS.get(job_id)
             if current:
@@ -752,6 +812,170 @@ def _process_jira_job(job_id: str, path: Path, display_name: str, mode: str = "w
                 job["updated_at"] = time.time()
     finally:
         path.unlink(missing_ok=True)
+
+
+def _process_new_task_job(job_id: str) -> None:
+    with NEW_TASK_JOBS_LOCK:
+        job = NEW_TASK_JOBS.get(job_id)
+        if not job:
+            return
+        job["status"] = "running"
+        job["progress"] = {"stage": "正在识别截图", "percent": 25, "detail": "正在识别统计标题和合计数量"}
+    try:
+        stat_key = job.get("stat_key", "new-tasks")
+        metric_map = {
+            "new-tasks": "本周新增任务数", "completed-tasks": "本周完成任务数",
+            "new-defects": "本周新增缺陷数", "fixed-defects": "本周已修复缺陷数",
+            "delayed-defects": "本周延期缺陷数", "pending-defects": "总挂起缺陷数",
+            "delayed-tasks": "本周延期任务数", "pending-tasks": "总挂起任务数",
+        }
+        metric = metric_map.get(stat_key, metric_map["new-tasks"])
+        result = process_new_task_statistics(job["xlsx"], job["screenshot"], metric=metric) if stat_key in {"new-tasks", "completed-tasks"} else process_screenshot_statistics(job["screenshot"], metric)
+        with NEW_TASK_JOBS_LOCK:
+            job["progress"] = {"stage": "正在生成 Excel", "percent": 85, "detail": f"正在整理{metric}统计结果"}
+        target = Path(job["directory"]) / f"{metric}.xlsx"
+        export_new_task_statistics_xlsx(result, target)
+        with NEW_TASK_JOBS_LOCK:
+            job.update({"status": "done", "result": result, "output": str(target), "progress": {"stage": "完成", "percent": 100, "detail": f"{metric}统计已完成"}})
+    except Exception as exc:
+        with NEW_TASK_JOBS_LOCK:
+            job.update({"status": "error", "error": str(exc), "progress": {"stage": "失败", "percent": 100, "detail": f"无法生成{metric}统计"}})
+
+
+async def _process_new_task_job_async(job_id: str) -> None:
+    """Run OCR/Excel work off the event loop so job polling remains responsive."""
+    await asyncio.to_thread(_process_new_task_job, job_id)
+
+
+@app.post("/api/jira/weekly-new-tasks/import")
+async def weekly_new_tasks_import(background_tasks: BackgroundTasks, jira_file: UploadFile = File(...), screenshot: UploadFile = File(...), stat_key: str = "new-tasks"):
+    """Upload a Jira export and the assignee-total screenshot for new-task correction."""
+    if not (jira_file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="请上传 Jira .xlsx 文件")
+    if Path(screenshot.filename or "").suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="请上传 PNG、JPG、JPEG 或 WEBP 截图")
+    NEW_TASK_JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    job_id = uuid.uuid4().hex
+    directory = Path(tempfile.mkdtemp(prefix=f"{job_id}_", dir=NEW_TASK_JOB_ROOT))
+    xlsx_path, image_path = directory / "source.xlsx", directory / f"source{Path(screenshot.filename).suffix.lower()}"
+    try:
+        xlsx_size, _ = await _save_upload(jira_file, xlsx_path, MAX_SIZE)
+        image_size, _ = await _save_upload(screenshot, image_path, MAX_SIZE)
+        if not xlsx_size or not image_size:
+            raise HTTPException(status_code=400, detail="上传文件内容为空")
+    except HTTPException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+    finally:
+        await jira_file.close()
+        await screenshot.close()
+    allowed = {"new-tasks", "completed-tasks"}
+    if stat_key not in allowed:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="该统计项需要上传截图，不需要 Jira Excel")
+    job = {"job_id": job_id, "status": "queued", "stat_key": stat_key, "directory": str(directory), "xlsx": str(xlsx_path), "screenshot": str(image_path), "output": "", "result": None, "error": "", "progress": {"stage": "排队中", "percent": 0, "detail": "等待开始处理"}}
+    with NEW_TASK_JOBS_LOCK:
+        NEW_TASK_JOBS[job_id] = job
+    background_tasks.add_task(_process_new_task_job_async, job_id)
+    return {"job_id": job_id, "status": "queued", "progress": job["progress"]}
+
+
+@app.get("/api/jira/weekly-new-tasks/jobs/{job_id}")
+async def weekly_new_tasks_job(job_id: str):
+    with NEW_TASK_JOBS_LOCK:
+        job = NEW_TASK_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="统计任务不存在或已过期")
+        response = {"job_id": job_id, "status": job["status"], "progress": job["progress"]}
+        if job["status"] == "done":
+            response["result"] = job["result"]
+        if job["status"] == "error":
+            response["error"] = job["error"]
+        return response
+
+
+@app.get("/api/jira/weekly-new-tasks/jobs/{job_id}/export")
+async def weekly_new_tasks_export(job_id: str):
+    with NEW_TASK_JOBS_LOCK:
+        job = NEW_TASK_JOBS.get(job_id)
+        if not job or job["status"] != "done":
+            raise HTTPException(status_code=409, detail="统计结果尚未生成")
+        target = Path(job["output"])
+        metric = {"new-tasks": "本周新增任务数", "completed-tasks": "本周完成任务数", "new-defects": "本周新增缺陷数", "fixed-defects": "本周已修复缺陷数", "delayed-defects": "本周延期缺陷数", "pending-defects": "总挂起缺陷数", "delayed-tasks": "本周延期任务数", "pending-tasks": "总挂起任务数"}.get(job.get("stat_key", "new-tasks"), "周报统计")
+    return FileResponse(target, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=f"{metric}.xlsx")
+
+
+@app.post("/api/jira/weekly-summary/export")
+async def weekly_summary_export(statistics: dict[str, list[dict]] = Body(default_factory=dict)):
+    directory = Path(tempfile.mkdtemp(prefix="weekly_summary_", dir=NEW_TASK_JOB_ROOT))
+    target = directory / "Jira周报统计汇总.xlsx"
+    export_combined_weekly_statistics_xlsx(statistics, target)
+    return FileResponse(target, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="Jira周报统计汇总.xlsx")
+
+
+@app.post("/api/jira/workbook-preview")
+async def jira_workbook_preview(file: UploadFile = File(...)):
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="请上传 Jira .xlsx 文件")
+    directory = Path(tempfile.mkdtemp(prefix="jira_preview_", dir=NEW_TASK_JOB_ROOT))
+    target = directory / "preview.xlsx"
+    try:
+        size, _ = await _save_upload(file, target, MAX_SIZE)
+        if not size:
+            raise HTTPException(status_code=400, detail="Excel 文件内容为空")
+        return preview_jira_workbook(target)
+    finally:
+        await file.close()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+@app.post("/api/jira/screenshot-title-check/{stat_key}")
+async def screenshot_title_check(stat_key: str, screenshot: UploadFile = File(...)):
+    metric_map = {"new-tasks": "本周新增任务数", "completed-tasks": "本周完成任务数", "new-defects": "本周新增缺陷数", "fixed-defects": "本周已修复缺陷数", "delayed-defects": "本周延期缺陷数", "pending-defects": "总挂起缺陷数", "delayed-tasks": "本周延期任务数", "pending-tasks": "总挂起任务数"}
+    metric = metric_map.get(stat_key)
+    if not metric:
+        raise HTTPException(status_code=400, detail="不支持的统计项")
+    if Path(screenshot.filename or "").suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="请粘贴 PNG、JPG、JPEG 或 WEBP 截图")
+    directory = Path(tempfile.mkdtemp(prefix="screenshot_check_", dir=NEW_TASK_JOB_ROOT))
+    target = directory / f"source{Path(screenshot.filename).suffix.lower()}"
+    try:
+        size, _ = await _save_upload(screenshot, target, MAX_SIZE)
+        if not size:
+            raise HTTPException(status_code=400, detail="截图内容为空")
+        await asyncio.to_thread(validate_screenshot_metric, target, metric)
+        return {"ok": True, "metric": metric}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        await screenshot.close()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+@app.post("/api/jira/weekly-screenshot-stats/{stat_key}/import")
+async def weekly_screenshot_stats_import(stat_key: str, background_tasks: BackgroundTasks, screenshot: UploadFile = File(...)):
+    allowed = {"new-defects", "fixed-defects", "delayed-defects", "pending-defects", "delayed-tasks", "pending-tasks"}
+    if stat_key not in allowed:
+        raise HTTPException(status_code=400, detail="不支持的统计项")
+    if Path(screenshot.filename or "").suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="请上传 PNG、JPG、JPEG 或 WEBP 截图")
+    metric_map = {"new-defects": "本周新增缺陷数", "fixed-defects": "本周已修复缺陷数", "delayed-defects": "本周延期缺陷数", "pending-defects": "总挂起缺陷数", "delayed-tasks": "本周延期任务数", "pending-tasks": "总挂起任务数"}
+    root = NEW_TASK_JOB_ROOT / "screenshot-stats"
+    root.mkdir(parents=True, exist_ok=True)
+    job_id = uuid.uuid4().hex
+    directory = Path(tempfile.mkdtemp(prefix=f"{job_id}_", dir=root))
+    image_path = directory / f"source{Path(screenshot.filename).suffix.lower()}"
+    try:
+        size, _ = await _save_upload(screenshot, image_path, MAX_SIZE)
+        if not size:
+            raise HTTPException(status_code=400, detail="上传截图内容为空")
+    finally:
+        await screenshot.close()
+    job = {"job_id": job_id, "status": "queued", "stat_key": stat_key, "directory": str(directory), "xlsx": "", "screenshot": str(image_path), "output": "", "result": None, "error": "", "progress": {"stage": "排队中", "percent": 0, "detail": "等待开始处理"}}
+    with NEW_TASK_JOBS_LOCK:
+        NEW_TASK_JOBS[job_id] = job
+    background_tasks.add_task(_process_new_task_job_async, job_id)
+    return {"job_id": job_id, "status": "queued", "progress": job["progress"]}
 
 
 @app.post("/api/jira/import")
@@ -909,6 +1133,33 @@ def _extract_weekly_archive(
     return presentation_sources, manifest
 
 
+async def _collect_weekly_folder(uploads: list[UploadFile], target_directory: Path, source_name: str) -> tuple[list[tuple[Path, str]], list[dict], int]:
+    """Save browser directory uploads and return PPTX sources plus a manifest."""
+    presentation_sources, manifest = [], []
+    total_size = 0
+    supported_index = 0
+    for upload in uploads:
+        relative_name = _safe_upload_name(upload.filename or "unnamed")
+        extension = Path(relative_name).suffix.lower()
+        kind = "ppt" if extension == ".pptx" else "historical" if extension == ".docx" else "ignored"
+        target = target_directory / f"folder_{supported_index}{extension or '.bin'}"
+        size, _ = await _save_upload(upload, target, WEEKLY_MAX_SIZE)
+        total_size += size
+        if size > WEEKLY_MAX_SIZE:
+            raise ValueError(f"File exceeds 500MB limit: {relative_name}")
+        if total_size > WEEKLY_MAX_ARCHIVE_UNPACKED_SIZE:
+            raise ValueError("Folder upload exceeds 2GB limit")
+        entry = {"path": f"{source_name} / {relative_name}", "kind": kind, "size": size, "status": "待解析" if kind == "ppt" else "历史成品" if kind == "historical" else "已忽略"}
+        manifest.append(entry)
+        if kind == "ppt":
+            entry["status"] = "已发现"
+            presentation_sources.append((target, f"{source_name} / {relative_name}"))
+            supported_index += 1
+        else:
+            target.unlink(missing_ok=True)
+    return presentation_sources, manifest, total_size
+
+
 def _process_weekly_job(job_id: str) -> None:
     with WEEKLY_JOBS_LOCK:
         job = WEEKLY_JOBS.get(job_id)
@@ -925,28 +1176,12 @@ def _process_weekly_job(job_id: str) -> None:
                 current["updated_at"] = time.time()
 
     try:
-        on_progress({"stage": "扫描压缩包", "percent": 5, "detail": "正在检查目录并解压项目 PPTX"})
-        directory = Path(job["directory"])
-        presentation_sources, archive_manifest = _extract_weekly_archive(
-            Path(job["upload_path"]), job["source"], directory, 0
-        )
-        if not presentation_sources:
-            raise ValueError("ZIP 中没有找到可处理的 PPTX 文件")
-        if len(presentation_sources) > 50:
-            raise ValueError("单次最多解析 50 个 PPTX 文件")
-        manifest = [{"path": job["source"], "kind": "archive", "size": job["upload_size"], "status": "已扫描"}, *archive_manifest]
-        with WEEKLY_JOBS_LOCK:
-            current = WEEKLY_JOBS.get(job_id)
-            if not current:
-                return
-            current["presentation_sources"] = [(str(path), name) for path, name in presentation_sources]
-            current["manifest"] = manifest
-        on_progress({"stage": "扫描压缩包", "percent": 10, "detail": f"已发现 {len(presentation_sources)} 个项目 PPTX，准备审核"})
         result = process_weekly_report(
-            presentation_sources,
-            manifest,
+            [(Path(path), name) for path, name in job["presentation_sources"]],
+            job["manifest"],
             progress_callback=on_progress,
         )
+        directory = Path(job["directory"])
         source_lookup = {name: Path(path) for path, name in job["presentation_sources"]}
         output_stem = result["output_stem"]
         suffix = output_stem.removeprefix("项目周报")
@@ -988,38 +1223,54 @@ def _process_weekly_job(job_id: str) -> None:
 
 
 @app.post("/api/weekly-report/import")
-async def weekly_report_import(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    """上传部门项目周报 ZIP，异步审核并生成总 PPT 与周例会 Word。"""
+async def weekly_report_import(background_tasks: BackgroundTasks, file: UploadFile | None = File(None), files: list[UploadFile] | None = File(None)):
+    """上传部门项目周报 ZIP 或文件夹内容，异步审核并生成结果。"""
     _cleanup_weekly_jobs()
+    uploads = ([file] if file else []) + (files or [])
+    if not uploads:
+        raise HTTPException(status_code=400, detail="请选择 ZIP 文件或周报文件夹")
     WEEKLY_JOB_ROOT.mkdir(parents=True, exist_ok=True)
     job_id = uuid.uuid4().hex
     job_directory = Path(tempfile.mkdtemp(prefix=f"{job_id}_", dir=WEEKLY_JOB_ROOT))
-    display_name = _safe_name(file.filename or "部门项目周报.zip")
-    if not display_name.lower().endswith(".zip"):
-        await file.close()
-        shutil.rmtree(job_directory, ignore_errors=True)
-        raise HTTPException(status_code=400, detail="请上传包含部门所有项目周报的 ZIP 文件")
-    upload_path = job_directory / "source.zip"
+    display_name = _safe_name(uploads[0].filename or "部门项目周报.zip")
+    is_archive = len(uploads) == 1 and display_name.lower().endswith(".zip")
     try:
-        size, _ = await _save_upload(file, upload_path, WEEKLY_MAX_SIZE)
-        if size > WEEKLY_MAX_SIZE:
-            raise HTTPException(status_code=413, detail="ZIP 文件超过 500MB 限制")
-        if size == 0:
-            raise HTTPException(status_code=400, detail="ZIP 文件内容为空")
-    except HTTPException:
+        if is_archive:
+            upload_path = job_directory / "source.zip"
+            size, _ = await _save_upload(uploads[0], upload_path, WEEKLY_MAX_SIZE)
+            if size > WEEKLY_MAX_SIZE:
+                raise HTTPException(status_code=413, detail="ZIP 文件超过 500MB 限制")
+            if size == 0:
+                raise HTTPException(status_code=400, detail="ZIP 文件内容为空")
+            presentation_sources, archive_manifest = _extract_weekly_archive(upload_path, display_name, job_directory, 0)
+            manifest = [{"path": display_name, "kind": "archive", "size": size, "status": "已扫描"}, *archive_manifest]
+        else:
+            display_name = "文件夹上传"
+            presentation_sources, folder_manifest, size = await _collect_weekly_folder(uploads, job_directory, display_name)
+            manifest = [{"path": display_name, "kind": "directory", "size": size, "status": "已扫描"}, *folder_manifest]
+    except (HTTPException, zipfile.BadZipFile, ValueError) as exc:
         shutil.rmtree(job_directory, ignore_errors=True)
-        raise
+        if isinstance(exc, HTTPException):
+            raise
+        detail = "压缩包损坏或格式不受支持" if isinstance(exc, zipfile.BadZipFile) else str(exc)
+        raise HTTPException(status_code=400, detail=detail) from exc
     finally:
-        await file.close()
+        for upload in uploads:
+            await upload.close()
+    if not presentation_sources:
+        shutil.rmtree(job_directory, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="上传内容中没有找到可处理的 PPTX 文件")
+    if len(presentation_sources) > 50:
+        shutil.rmtree(job_directory, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="单次最多解析 50 个 PPTX 文件")
+
     job = {
         "job_id": job_id,
         "status": "queued",
         "source": display_name,
         "directory": str(job_directory),
-        "upload_path": str(upload_path),
-        "upload_size": size,
-        "presentation_sources": [],
-        "manifest": [],
+        "presentation_sources": [(str(path), name) for path, name in presentation_sources],
+        "manifest": manifest,
         "updated_at": time.time(),
         "progress": {"stage": "排队中", "percent": 0, "detail": "等待开始审核项目周报"},
         "result": None,
