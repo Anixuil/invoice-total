@@ -60,9 +60,8 @@ def _money(value: str) -> Decimal:
         return Decimal("0")
 
 
-def parse_reimbursement_docx(path: str | Path) -> Reimbursement:
-    """Read the label/value paragraph export used by the reimbursement platform."""
-    lines = [paragraph.text.strip().replace("\u00a0", " ") for paragraph in Document(str(path)).paragraphs if paragraph.text.strip()]
+def _parse_reimbursement_lines(lines: list[str]) -> Reimbursement:
+    """Parse one reimbursement form from its exported label/value lines."""
     result = Reimbursement()
     detail = None
     details_started = False
@@ -97,6 +96,35 @@ def parse_reimbursement_docx(path: str | Path) -> Reimbursement:
             index += 1
     if detail and (detail.type or detail.purpose or detail.amount): result.details.append(detail)
     return result
+
+
+def parse_reimbursement_docx_many(path: str | Path) -> list[Reimbursement]:
+    """Read every reimbursement form in a DOCX exported as one continuous document.
+
+    Each occurrence of the standard reimbursement-number label starts a new form.
+    This is deliberately detected through ``LABELS`` so supported label punctuation
+    variants continue to work.
+    """
+    lines = [
+        paragraph.text.strip().replace("\u00a0", " ")
+        for paragraph in Document(str(path)).paragraphs
+        if paragraph.text.strip()
+    ]
+    starts = [
+        index for index, line in enumerate(lines)
+        if LABELS.get(_label(line)) == "reimbursement_number"
+    ]
+    if not starts:
+        return [_parse_reimbursement_lines(lines)]
+    return [
+        _parse_reimbursement_lines(lines[start:end])
+        for start, end in zip(starts, starts[1:] + [len(lines)])
+    ]
+
+
+def parse_reimbursement_docx(path: str | Path) -> Reimbursement:
+    """Read the first reimbursement form for backwards-compatible callers."""
+    return parse_reimbursement_docx_many(path)[0]
 
 
 def amount_to_chinese(value: Decimal) -> str:

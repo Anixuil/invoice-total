@@ -55,7 +55,7 @@ from weekly_report_processor import (
     process_weekly_report,
 )
 from reimbursement_generator import (
-    parse_reimbursement_docx,
+    parse_reimbursement_docx_many,
     render_reimbursement_pdf,
     validate_reimbursement_pdf,
 )
@@ -226,33 +226,55 @@ async def generate_reimbursement(file: UploadFile = File(...)):
         if size > 10 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="报销信息文件不能超过 10MB")
         try:
-            reimbursement = parse_reimbursement_docx(source)
-            if not reimbursement.fields.get("claimant"):
-                raise ValueError("未识别到“报销人”字段")
-            claimant = reimbursement.fields["claimant"]
-            safe_claimant = "".join(char for char in claimant if char not in '\\/:*?\"<>|').strip()
-            if not safe_claimant:
-                raise ValueError("“报销人”字段不能作为文件名")
-            output = directory / "reimbursement.pdf"
+            reimbursements = parse_reimbursement_docx_many(source)
+            if not reimbursements:
+                raise ValueError("未识别到报销单内容")
             generated_at = datetime.now()
-            render_reimbursement_pdf(reimbursement, output, generated_at=generated_at)
-            validation = validate_reimbursement_pdf(reimbursement, output, generated_at)
-            if not validation["ok"]:
-                raise ValueError(f"整体核验未通过：{'、'.join(validation['errors'])}")
+            outputs: list[Path] = []
+            validations = []
+            for index, reimbursement in enumerate(reimbursements, start=1):
+                claimant = reimbursement.fields.get("claimant", "")
+                if not claimant:
+                    raise ValueError(f"第 {index} 张报销单未识别到“报销人”字段")
+                safe_claimant = "".join(char for char in claimant if char not in '\\/:*?\"<>|').strip()
+                number = reimbursement.fields.get("reimbursement_number", "")
+                safe_number = "".join(char for char in number if char not in '\\/:*?\"<>|').strip()
+                if not safe_claimant or not safe_number:
+                    raise ValueError(f"第 {index} 张报销单的报销人或报销编号不能作为文件名")
+                output = directory / f"报销{safe_claimant}-{safe_number}.pdf"
+                render_reimbursement_pdf(reimbursement, output, generated_at=generated_at)
+                validation = validate_reimbursement_pdf(reimbursement, output, generated_at)
+                if not validation["ok"]:
+                    raise ValueError(f"第 {index} 张报销单整体核验未通过：{'、'.join(validation['errors'])}")
+                outputs.append(output)
+                validations.append(validation)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"无法解析报销信息：{exc}") from exc
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"生成报销单失败：{exc}") from exc
         cleanup = BackgroundTasks()
         cleanup.add_task(shutil.rmtree, directory, ignore_errors=True)
-        response = FileResponse(
-            output,
-            media_type="application/pdf",
-            filename=f"报销{safe_claimant}.pdf",
-            background=cleanup,
-        )
+        if len(outputs) == 1:
+            response = FileResponse(
+                outputs[0],
+                media_type="application/pdf",
+                filename=outputs[0].name,
+                background=cleanup,
+            )
+        else:
+            archive = directory / "报销单.pdf.zip"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+                for output in outputs:
+                    bundle.write(output, output.name)
+            response = FileResponse(
+                archive,
+                media_type="application/zip",
+                filename="报销单.zip",
+                background=cleanup,
+            )
         response.headers["X-Reimbursement-Validation"] = "passed"
-        response.headers["X-Reimbursement-Validation-Checks"] = str(len(validation["checks"]))
+        response.headers["X-Reimbursement-Validation-Checks"] = str(sum(len(item["checks"]) for item in validations))
+        response.headers["X-Reimbursement-Count"] = str(len(outputs))
         return response
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)

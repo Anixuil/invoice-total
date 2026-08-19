@@ -10,6 +10,7 @@ from reimbursement_generator import (
     amount_to_chinese,
     amount_to_template_digits,
     parse_reimbursement_docx,
+    parse_reimbursement_docx_many,
     render_reimbursement_pdf,
     validate_reimbursement_pdf,
 )
@@ -50,6 +51,29 @@ class ReimbursementGeneratorTests(unittest.TestCase):
             amount_to_template_digits(Decimal("101.00")),
             ["×", "×", "×", "壹", "零", "壹", "零", "零"],
         )
+
+    def test_parses_multiple_reimbursements_in_one_docx(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "multiple.docx"
+            document = Document()
+            for number, claimant, amount in (("TEST-001", "张三", "12.50"), ("TEST-002", "李四", "20.00")):
+                for value in (
+                    "报销编号:", number, "报销人:", claimant, "所属部门:", "研发部",
+                    "报销总金额:", amount, "报销明细", "报销明细1", "类型", "交通费",
+                    "用途:", "出行", "金额:", amount,
+                ):
+                    document.add_paragraph(value)
+            document.save(source)
+
+            reimbursements = parse_reimbursement_docx_many(source)
+
+            self.assertEqual(len(reimbursements), 2)
+            self.assertEqual(reimbursements[0].fields["reimbursement_number"], "TEST-001")
+            self.assertEqual(reimbursements[0].fields["claimant"], "张三")
+            self.assertEqual(reimbursements[0].total, Decimal("12.50"))
+            self.assertEqual(reimbursements[1].fields["reimbursement_number"], "TEST-002")
+            self.assertEqual(reimbursements[1].fields["claimant"], "李四")
+            self.assertEqual(reimbursements[1].total, Decimal("20.00"))
 
     def test_parses_docx_and_renders_multiple_pages(self):
         with tempfile.TemporaryDirectory() as directory:
