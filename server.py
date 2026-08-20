@@ -843,6 +843,12 @@ def _process_new_task_job(job_id: str) -> None:
             return
         job["status"] = "running"
         job["progress"] = {"stage": "正在识别截图", "percent": 25, "detail": "正在识别统计标题和合计数量"}
+    def on_progress(update: dict) -> None:
+        with NEW_TASK_JOBS_LOCK:
+            current = NEW_TASK_JOBS.get(job_id)
+            if current:
+                current["progress"] = update
+
     try:
         def on_progress(update: dict) -> None:
             with NEW_TASK_JOBS_LOCK:

@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import re
+import threading
 from typing import Any, Callable
 
 from openpyxl import Workbook, load_workbook
@@ -18,6 +19,8 @@ import cv2
 
 
 ProgressCallback = Callable[[dict[str, Any]], None] | None
+RAPIDOCR_LOCK = threading.RLock()
+SCREENSHOT_OCR_MAX_WIDTH = 1800
 
 STATUS_MAP = {
     "已解决": "已完成",
@@ -685,11 +688,21 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
     ocr = RapidOCR()
     ocr.text_score = 0.2
     ocr.min_height = 3
-    detected, _ = ocr(str(path))
+    image = cv2.imread(str(path))
+    if image is None:
+        raise ValueError("无法读取截图，请重新粘贴")
+    # Jira screenshots copied from high-DPI displays can be several thousand
+    # pixels wide. The pivot text remains legible at this size, while OCR time
+    # stays bounded so the background job can finish within the browser limit.
+    if image.shape[1] > SCREENSHOT_OCR_MAX_WIDTH:
+        scale = SCREENSHOT_OCR_MAX_WIDTH / image.shape[1]
+        image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    with RAPIDOCR_LOCK:
+        detected, _ = ocr(image)
     rows: dict[int, dict[str, Any]] = defaultdict(lambda: {"names": [], "numbers": []})
-    total_column_centers: list[float] = []
+    total_column_headers: list[tuple[float, float]] = []
     roster_names = {name for _, name in WEEKLY_ROSTER}
-    header_people: list[tuple[float, str]] = []
+    header_people: list[tuple[float, float, str]] = []
     summary_total_row: int | None = None
     for item in detected or []:
         if len(item) < 2:
@@ -700,9 +713,9 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
         center_x = sum(point[0] for point in box) / 4
         center_y = round(sum(point[1] for point in box) / 4 / 12) * 12
         if "合计" in text:
-            total_column_centers.append(center_x)
+            total_column_headers.append((center_x, center_y))
         if text in roster_names:
-            header_people.append((center_x, text))
+            header_people.append((center_x, center_y, text))
         if "唯一问题合计" in text:
             summary_total_row = center_y
         row = rows[center_y]
@@ -710,24 +723,32 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
         if numbers:
             row["numbers"].extend((center_x, number) for number in numbers)
         name = re.sub(r"[：:，,。.!！?？\s]", "", text)
-        if re.search(r"[\u4e00-\u9fff]", name) and not any(token in name for token in ("经办人", "合计", "唯一问题", "开放", "处理中", "统计", "分组")):
+        if name in roster_names:
             row["names"].append(name)
-    if header_people and summary_total_row is not None:
+    # A roster name in the first column is a row label, not a pivot column
+    # header. Treat names as headers only when they share the same row as the
+    # visible "合计" column header.
+    column_people = [
+        (center_x, name)
+        for center_x, center_y, name in header_people
+        if any(abs(center_y - total_y) <= 36 for _, total_y in total_column_headers)
+    ]
+    if column_people and summary_total_row is not None:
         # Some Jira pivots put people in the column headers and issue types in rows.
         # In that layout the bottom "唯一问题合计" row is the per-person result;
         # the grey rightmost 合计 column is only a cross-check and must be excluded.
-        total_x = max(total_column_centers, default=float("inf"))
-        people_right_edge = max(center for center, _ in header_people)
+        total_x = max((center for center, _ in total_column_headers), default=float("inf"))
+        people_right_edge = max(center for center, _ in column_people)
         boundary = (people_right_edge + total_x) / 2 if total_x != float("inf") else float("inf")
         column_totals: dict[str, int] = {}
         for center_x, number in rows[summary_total_row]["numbers"]:
             if center_x >= boundary:
                 continue
-            _, person = min(header_people, key=lambda item: abs(item[0] - center_x))
+            _, person = min(column_people, key=lambda item: abs(item[0] - center_x))
             column_totals[person] = number
         if column_totals:
             return column_totals
-    if total_column_centers:
+    if total_column_headers:
         # The total cell can be faint against the table grid. Re-read the total column at
         # higher resolution and mark those values explicitly, so other numeric columns
         # cannot be mistaken for totals when the first OCR pass misses a cell. Reuse one
@@ -738,7 +759,7 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
             cell_ocr = RapidOCR()
             cell_ocr.text_score = 0.05
             cell_ocr.min_height = 1
-            total_x = max(total_column_centers)
+            total_x = max(center for center, _ in total_column_headers)
             left = max(0, int(total_x - 70))
             right = min(image.shape[1], int(total_x + 100))
             for row_y, row in rows.items():
@@ -758,8 +779,8 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
             continue
         if "total_numbers" in row:
             totals[row["names"][0]] = row["total_numbers"]
-        elif total_column_centers:
-            total_x = max(total_column_centers)
+        elif total_column_headers:
+            total_x = max(center for center, _ in total_column_headers)
             totals[row["names"][0]] = min(row["numbers"], key=lambda item: abs(item[0] - total_x))[1]
         else:
             # 某些导出截图会裁掉表头；没有列定位信息时保留最右侧数值作为兼容回退。
@@ -784,13 +805,15 @@ def _validate_screenshot_metric(path: str | Path, expected_metric: str) -> None:
     if header.shape[1] > 1400:
         scale = 1400 / header.shape[1]
         header = cv2.resize(header, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    detected, _ = ocr(header)
+    with RAPIDOCR_LOCK:
+        detected, _ = ocr(header)
     text = "".join(_text(item[1]) for item in detected or [] if len(item) >= 2)
     actual = next((metric for metric in WEEKLY_STAT_METRICS if metric in text), None)
     if actual is None:
         # Browser chrome and custom Jira layouts can push the title below the fast crop.
         # Fall back to one full-image pass before rejecting a valid screenshot.
-        detected, _ = ocr(str(path))
+        with RAPIDOCR_LOCK:
+            detected, _ = ocr(str(path))
         text = "".join(_text(item[1]) for item in detected or [] if len(item) >= 2)
         actual = next((metric for metric in WEEKLY_STAT_METRICS if metric in text), None)
     if actual is None:
@@ -809,7 +832,8 @@ def _extract_screenshot_grand_total(path: str | Path) -> int | None:
     ocr = RapidOCR()
     ocr.text_score = 0.2
     ocr.min_height = 3
-    detected, _ = ocr(str(path))
+    with RAPIDOCR_LOCK:
+        detected, _ = ocr(str(path))
     total_x: float | None = None
     summary_y: int | None = None
     values: list[tuple[float, int]] = []
