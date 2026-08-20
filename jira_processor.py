@@ -730,9 +730,14 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
     if total_column_centers:
         # The total cell can be faint against the table grid. Re-read the total column at
         # higher resolution and mark those values explicitly, so other numeric columns
-        # cannot be mistaken for totals when the first OCR pass misses a cell.
+        # cannot be mistaken for totals when the first OCR pass misses a cell. Reuse one
+        # OCR session for every cell: constructing RapidOCR for each roster row repeatedly
+        # loads an ONNX session and can make a normal screenshot exceed the UI timeout.
         image = cv2.imread(str(path))
         if image is not None:
+            cell_ocr = RapidOCR()
+            cell_ocr.text_score = 0.05
+            cell_ocr.min_height = 1
             total_x = max(total_column_centers)
             left = max(0, int(total_x - 70))
             right = min(image.shape[1], int(total_x + 100))
@@ -743,9 +748,6 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
                 bottom = min(image.shape[0], row_y + 20)
                 cell_image = cv2.cvtColor(image[top:bottom, left:right], cv2.COLOR_BGR2GRAY)
                 cell_image = cv2.resize(cell_image, None, fx=5, fy=5, interpolation=cv2.INTER_CUBIC)
-                cell_ocr = RapidOCR()
-                cell_ocr.text_score = 0.05
-                cell_ocr.min_height = 1
                 cell_detected, _ = cell_ocr(cell_image)
                 values = [int(value) for item in cell_detected or [] for value in re.findall(r"\d+", _text(item[1]))]
                 if values:
@@ -839,37 +841,47 @@ def _extract_screenshot_grand_total(path: str | Path) -> int | None:
 
 
 def process_new_task_statistics(path: str | Path, screenshot: str | Path, metric: str = "本周新增任务数", progress_callback: ProgressCallback = None) -> dict[str, Any]:
-    """Adjust screenshot totals using developer/assignee mismatches from a Jira export."""
-    _notify(progress_callback, "读取 Jira 数据", 20, "正在检查开发人员和经办人")
+    """Build new-task counts from the Jira export and correct owner mismatches.
+
+    The screenshot is a total check, not a reliable row-level data source: Jira
+    pivot screenshots contain small, grid-separated names and totals that OCR can
+    partially miss.  The accompanying Excel has the complete assignee column, so
+    it is the source of truth for every person's baseline count.
+    """
+    _notify(progress_callback, "校验截图", 25, "正在确认统计标题与当前指标一致")
     _validate_screenshot_metric(screenshot, metric)
+    _notify(progress_callback, "读取 Jira 数据", 45, "正在检查开发人员和经办人")
     records, metadata = _read_weekly_records(path)
-    baseline = _extract_screenshot_totals(screenshot)
+    _notify(progress_callback, "核对截图合计", 65, "正在核对截图总数与 Jira Excel")
     screenshot_total = _extract_screenshot_grand_total(screenshot)
     excel_total = sum(not _is_defect(record) for record in records)
     if screenshot_total is not None and screenshot_total != excel_total:
         raise ValueError(f"Jira Excel 任务数为 {excel_total}，截图合计为 {screenshot_total}，数据不一致，请确认上传的是同一批周报文件和截图")
-    reverse_names = {name: username for username, name in WEEKLY_ROSTER}
-    counts = {username: baseline.get(name) for username, name in WEEKLY_ROSTER}
+    counts = Counter(
+        _text(record.get("assignee"))
+        for record in records
+        if not _is_defect(record) and _text(record.get("assignee"))
+    )
     mismatches = []
     for record in records:
         if _is_defect(record):
             continue
         assignee = _text(record.get("assignee"))
         developer = _text(record.get("developer"))
-        assignee_key = reverse_names.get(assignee, assignee)
-        developer_key = reverse_names.get(developer, developer)
         if assignee and developer and assignee != developer:
-            counts[developer_key] = (counts.get(developer_key) or 0) + 1
-            counts[assignee_key] = max(0, (counts.get(assignee_key) or 0) - 1)
+            counts[developer] += 1
+            counts[assignee] = max(0, counts[assignee] - 1)
             mismatches.append({"issue_key": record["issue_key"], "assignee": _weekly_display_person(assignee), "developer": _weekly_display_person(developer)})
     summary = [{"序号": index, "姓名": name, metric: counts.get(username) or ""} for index, (username, name) in enumerate(WEEKLY_ROSTER, start=1)]
-    return {"ok": True, "source": metadata, "summary": summary, "mismatches": mismatches, "screenshot_totals": baseline}
+    _notify(progress_callback, "修正人员归属", 80, "已按开发人员调整任务数量")
+    return {"ok": True, "source": metadata, "summary": summary, "mismatches": mismatches, "screenshot_total": screenshot_total}
 
 
 def process_screenshot_statistics(screenshot: str | Path, metric: str, progress_callback: ProgressCallback = None) -> dict[str, Any]:
     """Extract one Jira screenshot statistic in the fixed weekly roster order."""
-    _notify(progress_callback, "识别统计截图", 60, "正在提取人员和合计数量")
+    _notify(progress_callback, "校验截图", 30, "正在确认统计标题与当前指标一致")
     _validate_screenshot_metric(screenshot, metric)
+    _notify(progress_callback, "识别统计截图", 65, "正在提取人员和合计数量")
     baseline = _extract_screenshot_totals(screenshot)
     summary = [{"序号": index, "姓名": name, metric: baseline.get(name) or ""} for index, (_, name) in enumerate(WEEKLY_ROSTER, start=1)]
     return {"ok": True, "summary": summary, "screenshot_totals": baseline, "metric": metric}

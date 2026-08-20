@@ -59,6 +59,19 @@
   .weekly-new-task-toolbar { display: grid; gap: 14px; padding: 4px; background: #f4f6f8; border: 1px solid #d8e0e8; }
   .weekly-stat-grid { display: grid; gap: 16px; }
   .weekly-stat-row .weekly-inline-error { grid-column: 1 / -1; margin-top: -8px; padding: 2px 2px 0; color: #b42318; font-size: 14px; line-height: 1.45; }
+  .weekly-job-progress { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 11px 13px; border-left: 3px solid #285a78; background: #edf4f8; color: #23405c; }
+  .weekly-job-progress__mark { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #8ba8bb; border-radius: 50%; color: #285a78; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .weekly-job-progress__body { min-width: 0; }
+  .weekly-job-progress__stage { display: block; font-size: 14px; font-weight: 750; }
+  .weekly-job-progress__detail { display: block; margin-top: 2px; overflow: hidden; color: #607487; font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+  .weekly-job-progress__track { grid-column: 2 / -1; height: 3px; overflow: hidden; background: #cad9e3; }
+  .weekly-job-progress__bar { width: 0; height: 100%; background: #285a78; transition: width .24s ease; }
+  .weekly-job-progress.is-complete { border-left-color: #2f7461; background: #e8f4ed; }
+  .weekly-job-progress.is-complete .weekly-job-progress__mark { border-color: #7eac98; color: #1f5b47; }
+  .weekly-job-progress.is-complete .weekly-job-progress__bar { background: #2f7461; }
+  .weekly-job-progress.is-error { border-left-color: #b42318; background: #fdf0ef; }
+  .weekly-job-progress.is-error .weekly-job-progress__mark { border-color: #d99d98; color: #b42318; }
+  .weekly-job-progress.is-error .weekly-job-progress__bar { background: #b42318; }
   .weekly-summary-action { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 8px; color: #526578; font-size: 14px; }
   .preview-dialog { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(21, 37, 52, .42); }
   .preview-dialog[hidden] { display: none; }
@@ -76,14 +89,14 @@
   .weekly-action-button.is-ready { position: relative; padding-right: 38px; color: #1f5b47; background: #e4f2eb; border-color: #8ebda9; }
 .weekly-action-button.is-ready::after { content: "×"; position: absolute; top: 50%; right: 10px; width: 19px; height: 19px; transform: translateY(-50%); border-radius: 50%; color: #fff; background: #5e8978; font-size: 17px; font-weight: 700; line-height: 17px; text-align: center; }
 .weekly-action-button.is-ready:hover::after { background: #a63c35; }
-.weekly-action-button.is-processing { position: relative; padding-right: 38px; }
+  .weekly-action-button.is-processing { position: relative; padding-right: 38px; }
 .weekly-action-button.is-processing::after { content: "×"; position: absolute; top: 50%; right: 10px; width: 19px; height: 19px; transform: translateY(-50%); border-radius: 50%; color: #fff; background: #a66b22; font-size: 17px; font-weight: 700; line-height: 17px; text-align: center; }
 .weekly-action-button.is-processing:hover::after { background: #a63c35; }
   .weekly-action-button.is-generate.is-ready { color: #fff; background: #2f7461; border-color: #2f7461; }
-.weekly-action-button.is-processing { color: #7a5316; background: #f8eed8; border-color: #d7b473; background-image: linear-gradient(90deg, rgba(255,255,255,.32) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.32) 50%, rgba(255,255,255,.32) 75%, transparent 75%); background-size: 22px 22px; animation: weekly-scan 1s linear infinite; }
+.weekly-action-button.is-processing { color: #7a5316; background: #f8eed8; border-color: #d7b473; }
   .weekly-action-button.is-awaiting-paste { color: #385979; background: #eef5fa; border-color: #8fb1ca; }
   .clipboard-paste-target { position: fixed; top: 0; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-@keyframes weekly-scan { to { background-position: 22px 0; } }
+  @media (prefers-reduced-motion: reduce) { .weekly-job-progress__bar { transition: none; } }
   .weekly-stat-button:hover, .weekly-action-button:hover { color: #183b5b; border-color: #7f9fbc; background: #eef5fa; }
   .weekly-action-button.is-generate:hover { color: #fff; background: #12324e; border-color: #12324e; }
   .meta-dot { display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--primary); }
@@ -489,21 +502,11 @@ function scanWeeklyGeneration(button) {
   button._scanId = scanId;
   button._scanActive = true;
   button._scanLabel = '';
-  let percent = 4;
-  button.textContent = `扫描中 ${percent}%`;
+  button.textContent = '正在提交任务';
   button.classList.remove('is-ready');
   button.classList.add('is-processing');
-  button._scanTimer = setInterval(() => {
-    if (button._scanId !== scanId) return;
-    percent = Math.min(94, percent + (percent < 50 ? 7 : 3));
-    button.textContent = `扫描中 ${percent}%`;
-  }, 260);
-  button._scanWatchdog = window.setTimeout(() => {
-    if (button._scanId !== scanId || !button._scanActive) return;
-    const statKey = button.id === 'newTaskGenerateButton' ? 'new-tasks' : button.dataset.statGenerate;
-    cancelWeeklyScan(button);
-    if (statKey) showWeeklyInlineError(statKey, '生成处理超时，请检查截图标题和网络后重试');
-  }, 60000);
+  clearWeeklyJobProgress(button);
+  updateWeeklyJobProgress(button, { stage: '正在提交任务', percent: 5, detail: '正在上传本项所需文件' });
 }
 
 function scanWeeklyScreenshot(button) {
@@ -535,15 +538,13 @@ function completeWeeklyGeneration(button, label) {
   if (!button) return;
   if (button._scanTimer) clearInterval(button._scanTimer);
   if (button._scanWatchdog) clearTimeout(button._scanWatchdog);
+  if (button._scanFinishTimer) clearTimeout(button._scanFinishTimer);
   button._scanTimer = null;
   button._scanWatchdog = null;
-  const scanId = button._scanId;
-  button.textContent = '扫描中 100%';
-  button._scanFinishTimer = window.setTimeout(() => {
-    if (button._scanId !== scanId) return;
-    button._scanActive = false;
-    setWeeklyActionState(button, label);
-  }, 180);
+  button._scanFinishTimer = null;
+  button._scanActive = false;
+  updateWeeklyJobProgress(button, { stage: '生成完成', percent: 100, detail: '文件已生成，可点击下载' }, true);
+  setWeeklyActionState(button, label);
 }
 
 function cancelWeeklyScan(button, preserveLabel = false) {
@@ -580,6 +581,7 @@ function clearWeeklyInput(button, statKey) {
   button._weeklyUploadFile = null;
   button._weeklyInputVersion = (button._weeklyInputVersion || 0) + 1;
   cancelWeeklyScan(button);
+  clearWeeklyJobProgress(button);
   button.textContent = button.id === 'newTaskExcelButton' || button.dataset.statUpload === 'completed-tasks'
     ? '上传文件'
     : '粘贴截图';
@@ -617,9 +619,11 @@ function retainPastedScreenshot(file) {
 function clearGeneratedAction(button, statKey = '') {
   if (statKey) delete weeklyStatResults[statKey];
   if (statKey) delete weeklyStatJobs[statKey];
+  if (button) delete button.dataset.weeklyJobId;
   if (generatedStatKey === statKey) { currentJobId = ''; currentResult = null; generatedStatKey = ''; }
   button._weeklyInputVersion = (button._weeklyInputVersion || 0) + 1;
   cancelWeeklyScan(button);
+  clearWeeklyJobProgress(button);
   button.textContent = button.dataset.defaultLabel || '生成文件';
   document.getElementById('newTaskStatus').textContent = '结果已删除，可重新生成';
 }
@@ -629,13 +633,46 @@ function screenshotActionButton(statKey) {
   return document.querySelector(`[data-stat-paste="${statKey}"]`) || document.querySelector(`[data-stat-upload="${statKey}"]`);
 }
 
-function updateWeeklyGenerationProgress(button, progress) {
+function updateWeeklyGenerationProgress(button, progress, completed = false) {
   if (!button || !button._scanActive) return;
-  if (button._scanTimer) clearInterval(button._scanTimer);
-  button._scanTimer = null;
-  const percent = Math.max(1, Math.min(99, Number(progress?.percent) || 20));
+  const percent = completed ? 100 : Math.max(1, Math.min(99, Number(progress?.percent) || 20));
   const stage = progress?.stage || '正在处理';
-  button.textContent = `${stage} ${percent}%`;
+  button.textContent = stage;
+  updateWeeklyJobProgress(button, { ...progress, stage, percent }, completed);
+}
+
+function updateWeeklyJobProgress(button, progress, completed = false) {
+  const row = button?.closest('.weekly-stat-row');
+  if (!row) return;
+  let panel = row.querySelector('.weekly-job-progress');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.className = 'weekly-job-progress';
+    panel.setAttribute('role', 'status');
+    panel.setAttribute('aria-live', 'polite');
+    panel.innerHTML = '<span class="weekly-job-progress__mark"></span><div class="weekly-job-progress__body"><span class="weekly-job-progress__stage"></span><span class="weekly-job-progress__detail"></span></div><span class="weekly-job-progress__percent"></span><div class="weekly-job-progress__track"><div class="weekly-job-progress__bar"></div></div>';
+    row.appendChild(panel);
+  }
+  const percent = Math.max(0, Math.min(100, Number(progress?.percent) || 0));
+  panel.classList.toggle('is-complete', completed);
+  panel.classList.remove('is-error');
+  panel.querySelector('.weekly-job-progress__mark').textContent = completed ? '✓' : String(Math.ceil(percent / 25) || 1);
+  panel.querySelector('.weekly-job-progress__stage').textContent = progress?.stage || '正在处理';
+  panel.querySelector('.weekly-job-progress__detail').textContent = progress?.detail || '正在等待服务端返回处理进度';
+  panel.querySelector('.weekly-job-progress__percent').textContent = `${percent}%`;
+  panel.querySelector('.weekly-job-progress__bar').style.width = `${percent}%`;
+  document.getElementById('newTaskStatus').textContent = `${progress?.stage || '正在处理'}：${progress?.detail || '正在等待服务端返回处理进度'}`;
+}
+
+function clearWeeklyJobProgress(button) {
+  button?.closest('.weekly-stat-row')?.querySelector('.weekly-job-progress')?.remove();
+}
+
+function showWeeklyJobFailure(button, message) {
+  updateWeeklyJobProgress(button, { stage: '生成失败', percent: 100, detail: message });
+  const panel = button?.closest('.weekly-stat-row')?.querySelector('.weekly-job-progress');
+  panel?.classList.add('is-error');
+  if (panel) panel.querySelector('.weekly-job-progress__mark').textContent = '!';
 }
 
 function statGenerateButton(statKey) {
@@ -827,7 +864,7 @@ document.querySelectorAll('.weekly-action-button').forEach(button => button.addE
 }, true));
 
 function openWeeklyStatFile(statKey) {
-  const jobId = weeklyStatJobs[statKey];
+  const jobId = statGenerateButton(statKey)?.dataset.weeklyJobId || weeklyStatJobs[statKey];
   if (jobId) window.location.href = `/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}/export`;
 }
 
@@ -1080,9 +1117,22 @@ document.getElementById('weeklySummaryButton').addEventListener('click', async e
     document.getElementById('newTaskStatus').textContent = '整合结果已移除，可重新生成';
     return;
   }
+  const completedJobs = {};
+  const completedStatKeys = [];
+  document.querySelectorAll('[data-stat-generate], #newTaskGenerateButton').forEach(action => {
+    const statKey = action.id === 'newTaskGenerateButton' ? 'new-tasks' : action.dataset.statGenerate;
+    const jobId = action.dataset.weeklyJobId || weeklyStatJobs[statKey];
+    const completedPanel = action.closest('.weekly-stat-row')?.querySelector('.weekly-job-progress.is-complete');
+    if (jobId) completedJobs[statKey] = jobId;
+    else if (completedPanel || action.classList.contains('is-ready')) completedStatKeys.push(statKey);
+  });
+  if (!Object.keys(completedJobs).length && !completedStatKeys.length) {
+    document.getElementById('newTaskStatus').textContent = '请先生成至少一项统计文件，再进行整合';
+    return;
+  }
   scanWeeklyGeneration(button);
   try {
-    const response = await fetch('/api/jira/weekly-summary/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(weeklyStatResults) });
+    const response = await fetch('/api/jira/weekly-summary/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_ids: completedJobs, stat_keys: completedStatKeys }) });
     if (!response.ok) { const data = await response.json(); throw new Error(data.detail || response.statusText); }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -1152,18 +1202,19 @@ async function uploadNewTask(jiraFile, screenshot, statKey = 'new-tasks', action
     if (!response.ok) throw new Error(data.detail || response.statusText);
     const jobId = data.job_id;
     currentJobId = jobId;
-    const pollingDeadline = Date.now() + 120000;
+    const pollingDeadline = Date.now() + 300000;
     while (true) {
-      if (Date.now() > pollingDeadline) throw new Error('统计处理超时，请检查截图和 Excel 后重试');
+      if (Date.now() > pollingDeadline) throw new Error('统计处理超过 5 分钟仍未完成，请检查截图和 Excel 后重试');
       await wait(450);
       const { response: statusResponse, data: status } = await getJson(`/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}`, 30000);
       if (!statusResponse.ok) throw new Error(status.detail || statusResponse.statusText);
-      updateWeeklyGenerationProgress(actionButton, status.progress);
+      const completed = status.status === 'done';
+      updateWeeklyGenerationProgress(actionButton, status.progress, completed);
       setProgress(status.progress || {});
-      if (status.status === 'done') { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); weeklyStatJobs[statKey] = jobId; completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); generatedStatKey = statKey; currentResult = status.result; weeklyStatResults[statKey] = status.result.summary || []; if (statKey === 'new-tasks') renderNewTask(status.result); break; }
+      if (completed) { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); weeklyStatJobs[statKey] = jobId; actionButton.dataset.weeklyJobId = jobId; completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); generatedStatKey = statKey; currentResult = status.result; weeklyStatResults[statKey] = status.result.summary || []; if (statKey === 'new-tasks') renderNewTask(status.result); break; }
       if (status.status === 'error') throw new Error(status.error || '本周新增任务统计失败');
     }
-  } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { workspace.hidden = true; showWeeklyInlineError(statKey, error.message || '统计生成失败'); cancelWeeklyScan(actionButton); } }
+  } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { workspace.hidden = true; const message = error.message || '统计生成失败'; showWeeklyInlineError(statKey, message); showWeeklyJobFailure(actionButton, message); cancelWeeklyScan(actionButton); } }
   finally { newTaskExcel.value = ''; newTaskScreenshot.value = ''; newTaskSource = null; newTaskScreenshotFile = null; newTaskMode = false; drop.hidden = true; weeklyUpload.hidden = true; progress.hidden = true; weeklyNewTaskToolbar.hidden = false; }
 }
 
@@ -1176,17 +1227,18 @@ async function uploadScreenshotStat(statKey, screenshot, actionButton) {
     if (!response.ok) throw new Error(data.detail || response.statusText);
     const jobId = data.job_id;
     currentJobId = jobId;
-    const pollingDeadline = Date.now() + 120000;
+    const pollingDeadline = Date.now() + 300000;
     while (true) {
-      if (Date.now() > pollingDeadline) throw new Error('截图统计处理超时，请重试');
+      if (Date.now() > pollingDeadline) throw new Error('截图统计处理超过 5 分钟仍未完成，请重试');
       await wait(450);
       const { response: statusResponse, data: status } = await getJson(`/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}`, 30000);
       if (!statusResponse.ok) throw new Error(status.detail || statusResponse.statusText);
-      updateWeeklyGenerationProgress(actionButton, status.progress);
-      if (status.status === 'done') { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); currentResult = status.result; weeklyStatJobs[statKey] = jobId; weeklyStatResults[statKey] = status.result.summary || []; generatedStatKey = statKey; completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); break; }
+      const completed = status.status === 'done';
+      updateWeeklyGenerationProgress(actionButton, status.progress, completed);
+      if (completed) { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); currentResult = status.result; weeklyStatJobs[statKey] = jobId; actionButton.dataset.weeklyJobId = jobId; weeklyStatResults[statKey] = status.result.summary || []; generatedStatKey = statKey; completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); break; }
       if (status.status === 'error') throw new Error(status.error || '统计生成失败');
     }
-  } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { showWeeklyInlineError(statKey, error.message || '统计生成失败'); cancelWeeklyScan(actionButton); } }
+  } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { const message = error.message || '统计生成失败'; showWeeklyInlineError(statKey, message); showWeeklyJobFailure(actionButton, message); cancelWeeklyScan(actionButton); } }
 }
 
 function renderNewTask(result) {

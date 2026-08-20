@@ -844,6 +844,11 @@ def _process_new_task_job(job_id: str) -> None:
         job["status"] = "running"
         job["progress"] = {"stage": "正在识别截图", "percent": 25, "detail": "正在识别统计标题和合计数量"}
     try:
+        def on_progress(update: dict) -> None:
+            with NEW_TASK_JOBS_LOCK:
+                current = NEW_TASK_JOBS.get(job_id)
+                if current:
+                    current["progress"] = update
         stat_key = job.get("stat_key", "new-tasks")
         metric_map = {
             "new-tasks": "本周新增任务数", "completed-tasks": "本周完成任务数",
@@ -852,7 +857,7 @@ def _process_new_task_job(job_id: str) -> None:
             "delayed-tasks": "本周延期任务数", "pending-tasks": "总挂起任务数",
         }
         metric = metric_map.get(stat_key, metric_map["new-tasks"])
-        result = process_new_task_statistics(job["xlsx"], job["screenshot"], metric=metric) if stat_key in {"new-tasks", "completed-tasks"} else process_screenshot_statistics(job["screenshot"], metric)
+        result = process_new_task_statistics(job["xlsx"], job["screenshot"], metric=metric, progress_callback=on_progress) if stat_key in {"new-tasks", "completed-tasks"} else process_screenshot_statistics(job["screenshot"], metric, progress_callback=on_progress)
         with NEW_TASK_JOBS_LOCK:
             job["progress"] = {"stage": "正在生成 Excel", "percent": 85, "detail": f"正在整理{metric}统计结果"}
         target = Path(job["directory"]) / f"{metric}.xlsx"
@@ -928,7 +933,41 @@ async def weekly_new_tasks_export(job_id: str):
 
 
 @app.post("/api/jira/weekly-summary/export")
-async def weekly_summary_export(statistics: dict[str, list[dict]] = Body(default_factory=dict)):
+async def weekly_summary_export(payload: dict = Body(default_factory=dict)):
+    """Merge completed weekly-stat jobs from their server-side results.
+
+    The browser only keeps files and rendered results in memory. Use its completed
+    job IDs as the source of truth so a UI state refresh cannot create an empty
+    workbook after an individual statistic has already been generated.
+    """
+    job_ids = payload.get("job_ids", {})
+    stat_keys = payload.get("stat_keys", [])
+    if not isinstance(job_ids, dict):
+        raise HTTPException(status_code=400, detail="整合任务参数格式不正确")
+    if not isinstance(stat_keys, list):
+        raise HTTPException(status_code=400, detail="整合统计项参数格式不正确")
+    statistics: dict[str, list[dict]] = {}
+    with NEW_TASK_JOBS_LOCK:
+        for stat_key, job_id in job_ids.items():
+            job = NEW_TASK_JOBS.get(str(job_id))
+            if not job or job.get("status") != "done" or job.get("stat_key") != stat_key:
+                continue
+            result = job.get("result") or {}
+            summary = result.get("summary")
+            if isinstance(summary, list):
+                statistics[stat_key] = summary
+        # Compatibility for a page that visually completed before it started
+        # retaining the task ID on the action button. The newest completed job
+        # for that visible statistic is the same result the user just generated.
+        for stat_key in stat_keys:
+            if stat_key in statistics:
+                continue
+            job = next((item for item in reversed(list(NEW_TASK_JOBS.values())) if item.get("status") == "done" and item.get("stat_key") == stat_key), None)
+            summary = (job or {}).get("result", {}).get("summary")
+            if isinstance(summary, list):
+                statistics[stat_key] = summary
+    if not statistics:
+        raise HTTPException(status_code=409, detail="没有可整合的已完成统计，请先生成至少一项统计文件")
     directory = Path(tempfile.mkdtemp(prefix="weekly_summary_", dir=NEW_TASK_JOB_ROOT))
     target = directory / "Jira周报统计汇总.xlsx"
     export_combined_weekly_statistics_xlsx(statistics, target)
