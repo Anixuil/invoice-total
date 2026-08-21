@@ -1,0 +1,12 @@
+HTTP/1.1 200 OK
+date: Fri, 14 Aug 2026 07:23:49 GMT
+server: uvicorn
+content-type: application/pdf
+accept-ranges: bytes
+content-disposition: attachment; filename*=utf-8''%E6%8A%A5%E9%94%80%E6%B5%8B%E8%AF%95%E4%BA%BA%E5%91%98.pdf
+x-reimbursement-validation: passed
+x-reimbursement-validation-checks: 13
+content-length: 239503
+last-modified: Fri, 14 Aug 2026 07:23:50 GMT
+etag: "212be76e72c6b380816b4afed52bf071"
+

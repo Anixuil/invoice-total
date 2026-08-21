@@ -769,7 +769,12 @@ def _extract_screenshot_totals(path: str | Path) -> dict[str, int]:
                 bottom = min(image.shape[0], row_y + 20)
                 cell_image = cv2.cvtColor(image[top:bottom, left:right], cv2.COLOR_BGR2GRAY)
                 cell_image = cv2.resize(cell_image, None, fx=5, fy=5, interpolation=cv2.INTER_CUBIC)
-                cell_detected, _ = cell_ocr(cell_image)
+                # RapidOCR/ONNX Runtime sessions are not safe to execute in
+                # parallel. The first pass is locked above, but this fallback
+                # used to bypass that lock and could leave concurrent jobs at
+                # 65% indefinitely while each scanned every roster row.
+                with RAPIDOCR_LOCK:
+                    cell_detected, _ = cell_ocr(cell_image)
                 values = [int(value) for item in cell_detected or [] for value in re.findall(r"\d+", _text(item[1]))]
                 if values:
                     row["total_numbers"] = values[-1]

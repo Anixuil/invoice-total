@@ -636,11 +636,20 @@ function screenshotActionButton(statKey) {
 }
 
 function updateWeeklyGenerationProgress(button, progress, completed = false) {
-  if (!button || !button._scanActive) return;
+  if (!button) return;
+  if (!button._scanActive && !completed) return;
   const percent = completed ? 100 : Math.max(1, Math.min(99, Number(progress?.percent) || 20));
   const stage = progress?.stage || '正在处理';
+  if (completed) {
+    const statKey = button.id === 'newTaskGenerateButton' ? 'new-tasks' : button.dataset.statGenerate;
+    const filename = statKey && weeklyStatJobs[statKey]
+      ? weeklyStatFileNames[statKey] || '统计结果.xlsx'
+      : stage;
+    completeWeeklyGeneration(button, filename);
+    return;
+  }
   button.textContent = stage;
-  updateWeeklyJobProgress(button, { ...progress, stage, percent }, completed);
+  updateWeeklyJobProgress(button, { ...progress, stage, percent });
 }
 
 function updateWeeklyJobProgress(button, progress, completed = false) {
