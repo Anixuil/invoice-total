@@ -6,7 +6,7 @@ services:
     container_name: invoice-total
     restart: unless-stopped
     ports:
-      - "8080:8000"
+      - "7287:8000"
     volumes:
       - invoice-total-tmp:/tmp/invoice_total_preview_jobs
       - invoice-total-jira-tmp:/tmp/invoice_total_jira_jobs

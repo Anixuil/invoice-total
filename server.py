@@ -59,7 +59,13 @@ from reimbursement_generator import (
     render_reimbursement_pdf,
     validate_reimbursement_pdf,
 )
-from image_ppt_processor import build_image_presentation, validate_image_presentation
+try:
+    from image_ppt_processor import build_image_presentation, validate_image_presentation
+except ModuleNotFoundError:
+    # 图片转 PPT 为可选功能，精简部署镜像中不包含其处理模块。
+    IMAGE_PPT_AVAILABLE = False
+else:
+    IMAGE_PPT_AVAILABLE = True
 
 app = FastAPI(title="本地文件处理工具", version="1.1.0")
 
@@ -149,6 +155,8 @@ async def reimbursement_index():
 
 @app.get("/image-to-ppt")
 async def image_to_ppt_index():
+    if not IMAGE_PPT_AVAILABLE:
+        raise HTTPException(status_code=404, detail="图片转 PPT 功能未部署")
     return FileResponse(STATIC / "image-to-ppt.html")
 
 
@@ -169,6 +177,9 @@ def _cleanup_image_ppt_jobs() -> None:
 @app.post("/api/image-to-ppt/generate")
 async def generate_image_presentation(file: UploadFile = File(...)):
     """Create a visually faithful one-slide PPTX from a raster reference image."""
+    if not IMAGE_PPT_AVAILABLE:
+        await file.close()
+        raise HTTPException(status_code=503, detail="图片转 PPT 功能未部署")
     _cleanup_image_ppt_jobs()
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
@@ -205,6 +216,8 @@ async def generate_image_presentation(file: UploadFile = File(...)):
 
 @app.get("/api/image-to-ppt/jobs/{job_id}/download")
 async def download_image_presentation(job_id: str):
+    if not IMAGE_PPT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="图片转 PPT 功能未部署")
     _cleanup_image_ppt_jobs()
     with IMAGE_PPT_JOBS_LOCK:
         job = IMAGE_PPT_JOBS.get(job_id)
