@@ -30,7 +30,7 @@ try:
 except Exception:
     pass
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
 
 try:
     import pdfplumber

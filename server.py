@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from pathlib import PurePosixPath
 
-import fitz
+import pymupdf as fitz
 from fastapi import BackgroundTasks, Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles

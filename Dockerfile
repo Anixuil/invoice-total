@@ -6,6 +6,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+ARG DEBIAN_MIRROR=https://mirrors.aliyun.com/debian
+
+RUN find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+        -e "s|https\?://deb.debian.org/debian-security|${DEBIAN_MIRROR}-security|g" \
+        -e "s|https\?://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+        {} + \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+        libglib2.0-0 \
+        libgl1 \
+        libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN python -m pip install --upgrade pip \
