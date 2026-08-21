@@ -738,11 +738,16 @@ function clipboardImageFile(event) {
 document.addEventListener('click', event => {
   const button = event.target.closest('#newTaskExcelButton, #newTaskPasteButton, #newTaskGenerateButton, [data-stat-upload], [data-stat-paste], [data-stat-generate]');
   if (!button) return;
-  // Let the dedicated clear handlers process delete clicks. A processing
-  // button is cancellable from anywhere; a ready button keeps its center for
-  // preview and its right edge for delete.
-  if (isClearClick(event, button)) return;
   const isGenerateButton = button.id === 'newTaskGenerateButton' || button.dataset.statGenerate;
+  if (isGenerateButton && button.classList.contains('is-processing')) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  // Let the dedicated clear handlers process delete clicks. Processing upload
+  // controls remain cancellable; a ready button keeps its center for preview
+  // or download and reserves its right edge for delete.
+  if (isClearClick(event, button)) return;
   if (isGenerateButton) {
     // Handle generation here with DOM file fallbacks. The page historically
     // had several generation listeners; this capture path is the single
@@ -1195,9 +1200,19 @@ async function uploadNewTask(jiraFile, screenshot, statKey = 'new-tasks', action
       const { response: statusResponse, data: status } = await getJson(`/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}`, 30000);
       if (!statusResponse.ok) throw new Error(status.detail || statusResponse.statusText);
       const completed = status.status === 'done';
-      updateWeeklyGenerationProgress(actionButton, status.progress, completed);
       setProgress(status.progress || {});
-      if (completed) { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); weeklyStatJobs[statKey] = jobId; actionButton.dataset.weeklyJobId = jobId; completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); generatedStatKey = statKey; currentResult = status.result; weeklyStatResults[statKey] = status.result.summary || []; if (statKey === 'new-tasks') renderNewTask(status.result); break; }
+      if (completed) {
+        clearWeeklyInlineError(statKey);
+        weeklyStatJobs[statKey] = jobId;
+        actionButton.dataset.weeklyJobId = jobId;
+        completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx');
+        generatedStatKey = statKey;
+        currentResult = status.result;
+        weeklyStatResults[statKey] = status.result.summary || [];
+        if (statKey === 'new-tasks') renderNewTask(status.result);
+        break;
+      }
+      updateWeeklyGenerationProgress(actionButton, status.progress);
       if (status.status === 'error') throw new Error(status.error || '本周新增任务统计失败');
     }
   } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { workspace.hidden = true; const message = error.message || '统计生成失败'; showWeeklyInlineError(statKey, message); showWeeklyJobFailure(actionButton, message); cancelWeeklyScan(actionButton); } }
@@ -1220,8 +1235,18 @@ async function uploadScreenshotStat(statKey, screenshot, actionButton) {
       const { response: statusResponse, data: status } = await getJson(`/api/jira/weekly-new-tasks/jobs/${encodeURIComponent(jobId)}`, 30000);
       if (!statusResponse.ok) throw new Error(status.detail || statusResponse.statusText);
       const completed = status.status === 'done';
-      updateWeeklyGenerationProgress(actionButton, status.progress, completed);
-      if (completed) { if (actionButton._weeklyInputVersion !== generationVersion) return; clearWeeklyInlineError(statKey); currentResult = status.result; weeklyStatJobs[statKey] = jobId; actionButton.dataset.weeklyJobId = jobId; weeklyStatResults[statKey] = status.result.summary || []; generatedStatKey = statKey; downloadWeeklyStatFile(jobId); completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx'); break; }
+      if (completed) {
+        clearWeeklyInlineError(statKey);
+        currentResult = status.result;
+        weeklyStatJobs[statKey] = jobId;
+        actionButton.dataset.weeklyJobId = jobId;
+        weeklyStatResults[statKey] = status.result.summary || [];
+        generatedStatKey = statKey;
+        downloadWeeklyStatFile(jobId);
+        completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx');
+        break;
+      }
+      updateWeeklyGenerationProgress(actionButton, status.progress);
       if (status.status === 'error') throw new Error(status.error || '统计生成失败');
     }
   } catch (error) { if (actionButton._weeklyInputVersion === generationVersion) { const message = error.message || '统计生成失败'; showWeeklyInlineError(statKey, message); showWeeklyJobFailure(actionButton, message); cancelWeeklyScan(actionButton); } }
