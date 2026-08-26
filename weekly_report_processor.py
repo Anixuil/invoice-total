@@ -279,7 +279,10 @@ def _section_from_entries(entries: list[dict[str, Any]], key: str) -> str:
     label = min(label_entries, key=lambda item: (item["top"], item["left"]))
     next_tops = [
         item["top"] for item in entries
-        if item is not label and item["top"] > label["top"] + 1000 and _is_section_label(item["text"])
+        if item is not label
+        and item["top"] > label["top"] + 1000
+        and _is_section_label(item["text"])
+        and (key != "issues" or item["left"] >= label["left"] - 100000)
     ]
     bottom = min(next_tops) if next_tops else 10**10
     values = []
@@ -289,7 +292,7 @@ def _section_from_entries(entries: list[dict[str, Any]], key: str) -> str:
     for item in entries:
         if item is label or item["top"] < label["top"] - 100000 or item["top"] >= bottom:
             continue
-        if item["left"] + 100000 < label["left"]:
+        if key != "issues" and item["left"] + 100000 < label["left"]:
             continue
         if key in {"current", "next"} and label["left"] < 2000000 and item["left"] > 7200000:
             continue
@@ -301,6 +304,35 @@ def _section_from_entries(entries: list[dict[str, Any]], key: str) -> str:
         if content:
             values.append((item["top"], item["left"], content))
     return "\n".join(dict.fromkeys(value for _, _, value in sorted(values)))
+
+
+def _section_lines(value: str) -> list[str]:
+    """Return normalized, non-empty content lines while retaining display text."""
+    return list(dict.fromkeys(
+        line for raw_line in _text(value).splitlines()
+        if (line := _clean_line(raw_line))
+    ))
+
+
+def _prefer_later_section_content(section_values: dict[str, str]) -> dict[str, str]:
+    """Keep a duplicated item in the later, explicitly labeled weekly section.
+
+    A frequent source-slide editing mistake is leaving a next-week bullet at the
+    bottom of the current-week text box while also listing it under "下周计划".
+    The explicit later section is the authoritative location for that item.
+    """
+    result = dict(section_values)
+    next_lines = {
+        _normalized_content(line)
+        for line in _section_lines(result.get("next", ""))
+    }
+
+    current_lines = _section_lines(result.get("current", ""))
+    result["current"] = "\n".join(
+        line for line in current_lines
+        if _normalized_content(line) not in next_lines
+    )
+    return result
 
 
 def _slide_title(entries: list[dict[str, Any]]) -> tuple[str, str, str]:
@@ -391,10 +423,10 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
         placeholders = [entry for entry in entries if re.search(r"X{2,}|Ｘ{2,}", entry["text"])]
         for entry in placeholders:
             issues.append({"severity": "error", "code": "placeholder", "label": "模板占位符未替换", "file": display_name, "slide": slide_number, "location": f"对象 {entry['path']}", "project": project_title, "detail": f"发现未替换内容：{entry['text'][:80]}", "suggestion": "补充真实周报内容后再合并。"})
-        section_values = {
+        section_values = _prefer_later_section_content({
             section_key: _section_from_entries(entries, section_key)
             for section_key in SECTION_DISPLAY
-        }
+        })
         issues.extend(_audit_shape_bounds(entries, width, height, display_name, slide_number, project_title))
         slides.append({
             "id": f"{display_name}#{slide_number}", "file": display_name, "slide": slide_number,
@@ -509,17 +541,38 @@ def process_weekly_report(
 
     all_slides = [slide for parsed in parsed_files for slide in parsed["slides"]]
     by_key: dict[str, list[dict[str, Any]]] = {item["key"]: [] for item in expected}
+    added_projects: dict[str, list[dict[str, Any]]] = {}
     for slide in all_slides:
         if slide["project_key"]:
             by_key.setdefault(slide["project_key"], []).append(slide)
         else:
-            all_issues.append({"severity": "warning", "code": "unmatched_slide", "label": "项目页未对应", "file": slide["file"], "slide": slide["slide"], "location": "标题区域", "project": "", "detail": f"源标题“{slide['title']}”未匹配到模板项目。", "suggestion": "确认是否应新增模板项目，或修正源 PPT 标题。"})
+            title = _text(slide["title"])
+            key = _canonical_title(title)
+            if not key:
+                all_issues.append({"severity": "warning", "code": "unmatched_slide", "label": "项目页未对应", "file": slide["file"], "slide": slide["slide"], "location": "标题区域", "project": "", "detail": "源项目页没有可识别的标题，无法自动添加。", "suggestion": "在页面顶部补充项目名称和汇报人。"})
+                continue
+            added_projects.setdefault(key, []).append(slide)
 
     for project in expected:
         all_issues.extend(_audit_project_pages(project, by_key.get(project["key"], [])))
 
     deck_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "项目周报") for item in deck_projects]
+    added_results = []
+    for key, slides in added_projects.items():
+        title = next((item["title"] for item in slides if item["title"]), key)
+        reporter = next((item["reporter"] for item in slides if item["reporter"]), "")
+        project = {
+            "id": f"added_{len(deck_results) + 1}",
+            "key": key,
+            "title": title,
+            "reporter": reporter,
+            "template_slide": None,
+        }
+        all_issues.append({"severity": "info", "code": "project_auto_added", "label": "新增项目已加入", "file": "、".join(sorted({item["file"] for item in slides})), "slide": 0, "location": "总周报", "project": title, "detail": f"未配置在内置模板中的项目“{title}”已自动追加到总周报 PPT。", "suggestion": "如需将该项目同步到周例会 DOCX，请在周例会模板中增加对应项目条目。"})
+        added_results.append(_project_result(project, slides, all_issues, "自动添加项目"))
+    deck_results.extend(added_results)
     meeting_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "周例会") for item in meeting_projects]
+    meeting_results.extend({**item, "source_kind": "自动添加项目"} for item in added_results)
     for project in deck_results + meeting_results:
         if len(project["source_files"]) > 1:
             all_issues.append({"severity": "warning", "code": "multiple_sources", "label": "多个源文件合并", "file": "、".join(project["source_files"]), "slide": 0, "location": project["title"], "project": project["title"], "detail": "同一项目来自多个 PPT 文件，系统按源文件和页码顺序合并。", "suggestion": "确认这些文件是否是同一项目的不同内容页。"})
@@ -709,7 +762,7 @@ def _shape_capacity(shape) -> tuple[int, int]:
     """估算当前字号下文本框可容纳的字符数和行数。"""
     font_size = _shape_font_size(shape)
     emu_per_point = 12700
-    chars_per_line = max(8, int(int(shape.width) / (font_size * emu_per_point * 0.95)))
+    chars_per_line = max(8, int(int(shape.width) / (font_size * emu_per_point * 1.08)))
     max_lines = max(1, int(int(shape.height) / (font_size * emu_per_point * 1.3)))
     return chars_per_line, max_lines
 
@@ -740,7 +793,8 @@ def _format_project_body(shape) -> None:
     lines = []
     for paragraph in shape.text_frame.paragraphs:
         value = re.sub(r"^[\s·•]+", "", _text(paragraph.text))
-        lines.append(f"· {value}" if value else "")
+        if value:
+            lines.append(f"· {value}")
     if lines and "\n".join(lines) != shape.text:
         shape.text = "\n".join(lines)
     shape.text_frame.word_wrap = True
@@ -776,13 +830,48 @@ def _set_project_body_font(shape, font_size: int, color: RGBColor | None = None)
                 run.font.color.rgb = color
 
 
+def _set_shape_text_color(shape, color: RGBColor) -> None:
+    for paragraph in shape.text_frame.paragraphs:
+        for run in paragraph.runs:
+            run.font.color.rgb = color
+
+
+def _apply_issue_text_color(slide, issue_text: str) -> None:
+    """Color the issue label and its parsed source text without layout assumptions."""
+    issue_values = {
+        _normalized_content(line)
+        for line in _section_lines(issue_text)
+        if _normalized_content(line)
+    }
+    entries = _flatten_shapes(slide.shapes)
+    issue_labels = [entry for entry in entries if _is_section_label(entry["text"], "issues")]
+    for entry in entries:
+        shape = entry["shape"]
+        if not getattr(shape, "has_text_frame", False):
+            continue
+        if _is_section_label(entry["text"], "issues"):
+            _set_shape_text_color(shape, PPT_ISSUE_COLOR)
+            continue
+        if _text_role(entry["text"]) != "body":
+            continue
+        content = _normalized_content(entry["text"])
+        is_adjacent_to_issue_label = any(
+            label["left"] - 100000 <= entry["left"] < label["left"] + label["width"]
+            for label in issue_labels
+        )
+        if any(value in content for value in issue_values) or is_adjacent_to_issue_label:
+            _set_shape_text_color(shape, PPT_ISSUE_COLOR)
+
+
 def _project_body_font_size(shape) -> int:
     _format_project_body(shape)
-    for font_size in (14, 12):
+    # Avoid creating an almost-empty continuation slide when a source page
+    # only exceeds the conservative estimate by one or two lines.
+    for font_size in (14, 12, 11, 10, 9, 8, 7, 6):
         _set_project_body_font(shape, font_size)
         if len(_text_chunks(shape)) <= 1:
             return font_size
-    return 12
+    return 6
 
 
 def _clear_paragraph_bullets(paragraph) -> None:
@@ -827,7 +916,7 @@ def _format_project_slide_bodies(slide) -> None:
 
 def _shape_capacity_for_font(shape, font_size: float) -> tuple[int, int]:
     emu_per_point = 12700
-    chars_per_line = max(8, int(int(shape.width) / (font_size * emu_per_point * 0.95)))
+    chars_per_line = max(8, int(int(shape.width) / (font_size * emu_per_point * 1.08)))
     max_lines = max(1, int(int(shape.height) / (font_size * emu_per_point * 1.3)))
     return chars_per_line, max_lines
 
@@ -844,7 +933,9 @@ def _text_chunks(shape) -> list[str]:
             lines.append(line[:chars_per_line])
             line = line[chars_per_line:]
         lines.append(line)
-    chunk_size = max(1, max_lines)
+    # Reserve two lines for the bullet prefix and renderer-specific Chinese
+    # wrapping. Filling the estimated maximum is prone to visual overlap.
+    chunk_size = max(1, max_lines - 2)
     return ["\n".join(lines[index:index + chunk_size]) for index in range(0, len(lines), chunk_size)]
 
 
@@ -861,6 +952,15 @@ def _overflow_chunks(slide) -> dict[str, list[str]]:
         if len(values) > 1:
             chunks[entry["path"]] = values
     return chunks
+
+
+def _body_texts(slide) -> dict[str, str]:
+    """Capture complete body text before overflow pages replace individual chunks."""
+    return {
+        entry["path"]: entry["text"]
+        for entry in _flatten_shapes(slide.shapes)
+        if entry["text"] and _text_role(entry["text"]) == "body"
+    }
 
 
 def _set_page_chunks(slide, chunks: dict[str, list[str]], page_index: int) -> None:
@@ -957,17 +1057,14 @@ def _generation_qa(
                     _replace_title(slide, expected_title, expected_reporter)
                 else:
                     _replace_title(slide, group["project"]["title"], group["project"]["reporter"])
-            source_entries = {
-                entry["path"]: entry for entry in _flatten_shapes(group["source_slide"].shapes)
-                if entry["text"] and _text_role(entry["text"]) == "body"
-            }
+            source_entries = group.get("source_body_texts") or _body_texts(group["source_slide"])
             page_maps = [
                 {entry["path"]: entry for entry in _flatten_shapes(slide.shapes)}
                 for slide in group["slides"]
             ]
-            for path, source_entry in source_entries.items():
+            for path, source_text in source_entries.items():
                 content_total += 1
-                expected = _normalized_content(source_entry["text"])
+                expected = _normalized_content(source_text)
                 actual = _normalized_content("".join(
                     page[path]["text"] for page in page_maps
                     if path in page and page[path]["text"]
@@ -1121,6 +1218,66 @@ def _fill_missing_project_sections(slide) -> None:
         _format_project_body(body)
 
 
+def _section_body_entries(entries: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """Find editable body boxes that belong to one explicitly labeled section."""
+    labels = [entry for entry in entries if _is_section_label(entry["text"], key)]
+    if not labels:
+        return []
+    label = min(labels, key=lambda entry: (entry["top"], entry["left"]))
+    next_tops = [
+        entry["top"] for entry in entries
+        if entry is not label
+        and entry["top"] > label["top"] + 1000
+        and _is_section_label(entry["text"])
+    ]
+    bottom = min(next_tops) if next_tops else 10**10
+    bodies = []
+    for entry in entries:
+        shape = entry["shape"]
+        if (
+            entry is label
+            or not getattr(shape, "has_text_frame", False)
+            or _text_role(entry["text"]) != "body"
+            or not (label["top"] - 100000 <= entry["top"] < bottom)
+        ):
+            continue
+        if key == "issues":
+            is_in_section = entry["left"] + 100000 < label["left"]
+        else:
+            is_in_section = entry["left"] + 100000 >= label["left"] and entry["left"] <= 7200000
+        if is_in_section:
+            bodies.append(entry)
+    # Some source pages contain an empty template placeholder alongside the
+    # actual body text box. Prefer the populated box so its intended layout is
+    # retained; use the largest empty box only when there is no source content.
+    return sorted(
+        bodies,
+        key=lambda entry: (
+            not bool(_text(entry["text"])),
+            -(entry["width"] * entry["height"]),
+            entry["top"],
+            entry["left"],
+        ),
+    )
+
+
+def _write_project_sections(slide, section_values: dict[str, str]) -> None:
+    """Write the audited section values back into a cloned source project slide."""
+    entries = _flatten_shapes(slide.shapes)
+    # The issue column in the supplied template is a grouped shape whose body
+    # overlaps the main column geometrically. Its content is preserved here;
+    # only the independently laid-out current/next-week sections are rebuilt.
+    for key in ("current", "next"):
+        bodies = _section_body_entries(entries, key)
+        if not bodies:
+            continue
+        bodies[0]["shape"].text = section_values.get(key, "") or "无"
+        for entry in bodies[1:]:
+            entry["shape"].text = ""
+    _format_project_slide_bodies(slide)
+    _apply_issue_text_color(slide, section_values.get("issues", ""))
+
+
 def _normalize_source_project_layout(slide) -> None:
     """统一源项目页正文的左上对齐和项目符号，避免沿用错误的居中属性。"""
     for entry in _flatten_shapes(slide.shapes):
@@ -1194,6 +1351,14 @@ def build_weekly_presentation(
         outro_id = next(item for item in slide_ids if item.id == outro_slide.slide_id)
         slide_ids.insert(slide_ids.index(outro_id), slide_id)
 
+    def place_after(reference_slide, slide) -> None:
+        """Keep an overflow continuation adjacent to its source page."""
+        slide_ids = presentation.slides._sldIdLst
+        slide_id = next(item for item in slide_ids if item.id == slide.slide_id)
+        slide_ids.remove(slide_id)
+        reference_id = next(item for item in slide_ids if item.id == reference_slide.slide_id)
+        slide_ids.insert(slide_ids.index(reference_id) + 1, slide_id)
+
     for project in result["projects"]:
         template_slide = style_slides.get(project["key"])
         if not project["slides"]:
@@ -1211,10 +1376,18 @@ def build_weekly_presentation(
                 "template_slide": template_slide,
                 "style_reference": empty_slide,
                 "chunks": empty_chunks,
+                "source_body_texts": _body_texts(empty_slide),
                 "slides": [empty_slide],
             })
             continue
+        project_has_content = any(
+            source.get(key)
+            for source in project["slides"]
+            for key in ("current", "next", "issues")
+        )
         for source in project["slides"]:
+            if project_has_content and not any(source.get(key) for key in ("current", "next", "issues")):
+                continue
             display_name = source["file"]
             if display_name not in source_cache:
                 source_cache[display_name] = Presentation(source_lookup[display_name])
@@ -1222,19 +1395,38 @@ def build_weekly_presentation(
             if _is_outro_slide(source_slide):
                 continue
             cloned = _clone_source_slide(presentation, source_slide)
+            _write_project_sections(cloned, source)
             _normalize_source_project_layout(cloned)
+            _apply_issue_text_color(cloned, source.get("issues", ""))
             source_chunks = _overflow_chunks(cloned)
             place_before_outro(cloned)
             generated_groups.append({
                 "project": project,
                 "source": source,
-                "source_slide": source_slide,
+                "source_slide": cloned,
                 "template_slide": template_slide,
                 "style_reference": cloned,
                 "preserve_source_title": True,
                 "chunks": source_chunks,
+                "source_body_texts": _body_texts(cloned),
+                "issue_text": source.get("issues", ""),
                 "slides": [cloned],
             })
+    for group in generated_groups:
+        chunks = group["chunks"]
+        page_count = max((len(values) for values in chunks.values()), default=1)
+        if page_count == 1:
+            continue
+        # Clone the complete source slide before replacing the first page with
+        # its chunk, so every continuation starts from the same page layout.
+        for page_index in range(1, page_count):
+            continuation = _clone_source_slide(presentation, group["source_slide"])
+            _set_page_chunks(continuation, chunks, page_index)
+            _apply_issue_text_color(continuation, group.get("issue_text", ""))
+            place_after(group["slides"][-1], continuation)
+            group["slides"].append(continuation)
+        _set_page_chunks(group["slides"][0], chunks, 0)
+        _apply_issue_text_color(group["slides"][0], group.get("issue_text", ""))
     for placeholder_slide in placeholder_slides:
         _remove_slide(presentation, placeholder_slide)
     _retain_single_outro_slide(presentation)
@@ -1267,9 +1459,24 @@ def _set_paragraph_xml_text(paragraph_element, value: str) -> None:
         text_node.text = value
 
 
-def _paragraph_copy(template_paragraph, value: str):
+def _set_word_paragraph_color(paragraph_element, color: str) -> None:
+    for run in paragraph_element.xpath(".//w:r"):
+        properties = run.find(qn("w:rPr"))
+        if properties is None:
+            properties = run.makeelement(qn("w:rPr"), {})
+            run.insert(0, properties)
+        color_element = properties.find(qn("w:color"))
+        if color_element is None:
+            color_element = properties.makeelement(qn("w:color"), {})
+            properties.append(color_element)
+        color_element.set(qn("w:val"), color)
+
+
+def _paragraph_copy(template_paragraph, value: str, color: str | None = None):
     paragraph = deepcopy(template_paragraph._p)
     _set_paragraph_xml_text(paragraph, value)
+    if color:
+        _set_word_paragraph_color(paragraph, color)
     return paragraph
 
 
@@ -1300,14 +1507,17 @@ def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, te
     for paragraph in list(cell.paragraphs):
         _remove_element(paragraph._p)
     for project in result["meeting_projects"]:
-        heading = heading_by_key.get(project["key"]) or headings[0]
-        tc.append(_paragraph_copy(heading, _text(heading.text)))
+        heading = heading_by_key.get(project["key"])
+        heading_template = heading or headings[0]
+        heading_text = _text(heading.text) if heading else f"{project['title']}（汇报人：{project['reporter'] or '待补充'}）"
+        tc.append(_paragraph_copy(heading_template, heading_text))
         for key in ("current", "next", "issues"):
             label_template = label_templates.get(key) or bullet_template
-            tc.append(_paragraph_copy(label_template, SECTION_DISPLAY[key]))
+            color = "FF0000" if key == "issues" else None
+            tc.append(_paragraph_copy(label_template, SECTION_DISPLAY[key], color))
             values = [line for line in project.get(key, "").splitlines() if line.strip()] or ["无"]
             for value in values:
-                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value)))
+                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), color))
             tc.append(deepcopy(blank_template._p))
     document.save(target)
 
