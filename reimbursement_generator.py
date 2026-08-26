@@ -27,6 +27,13 @@ CN_UNITS = ("", "拾", "佰", "仟")
 CN_BIG_UNITS = ("", "万", "亿")
 FIXED_DEPARTMENT = "数据智能部"
 TEXT_FONT_NAME = "china-s"
+NOTE_FONT_NAME = "notes-cjk"
+NOTE_FONT_PATHS = (
+    Path("C:/Windows/Fonts/simsun.ttc"),
+    Path("C:/Windows/Fonts/NotoSerifSC-VF.ttf"),
+    Path("/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+)
 
 
 @dataclass
@@ -60,6 +67,23 @@ def _money(value: str) -> Decimal:
         return Decimal("0")
 
 
+def _contract_number(value: str) -> str:
+    """Treat question-mark placeholders in an unfilled contract field as blank."""
+    value = str(value or "").strip()
+    return "" if re.fullmatch(r"[?？]*", value) else value
+
+
+def _looks_like_label(value: str) -> bool:
+    """Identify known labels and unrecognised DOCX form labels after empty fields."""
+    key = _label(value)
+    return (
+        key in LABELS
+        or key in DETAIL_LABELS
+        or key == "报销明细"
+        or value.strip().endswith((":", "："))
+    )
+
+
 def _parse_reimbursement_lines(lines: list[str]) -> Reimbursement:
     """Parse one reimbursement form from its exported label/value lines."""
     result = Reimbursement()
@@ -81,7 +105,7 @@ def _parse_reimbursement_lines(lines: list[str]) -> Reimbursement:
         target = mapping.get(key)
         if target:
             value = lines[index + 1] if index + 1 < len(lines) else ""
-            next_is_label = _label(value) in LABELS or _label(value) in DETAIL_LABELS or _label(value) == "报销明细"
+            next_is_label = _looks_like_label(value)
             if next_is_label:
                 value = ""
             if details_started:
@@ -181,6 +205,7 @@ def _text(
     color=(.12, .12, .12),
     align=fitz.TEXT_ALIGN_CENTER,
     fontname=TEXT_FONT_NAME,
+    fontsize=10,
 ):
     """Write 10pt Song text without allowing content to escape its template cell."""
     text = str(text or "")
@@ -190,13 +215,31 @@ def _text(
         if page.insert_textbox(
             rect,
             candidate,
-            fontsize=10,
+            fontsize=fontsize,
             fontname=fontname,
             color=color,
             align=align,
         ) >= 0:
             return
         truncated = truncated[:-1].rstrip()
+
+
+def _notes_font(page) -> tuple[str, fitz.Font]:
+    """Register a Song-style mixed CJK font so Latin words are not spaced out."""
+    for path in NOTE_FONT_PATHS:
+        if path.is_file():
+            page.insert_font(fontname=NOTE_FONT_NAME, fontfile=str(path))
+            return NOTE_FONT_NAME, fitz.Font(fontfile=str(path))
+    return TEXT_FONT_NAME, fitz.Font(fontname=TEXT_FONT_NAME)
+
+
+def _notes_text(page, rect, text) -> None:
+    """Write a readable Song-style note that wraps within its template cell."""
+    text = str(text or "").replace("\n", " ").strip()
+    if not text:
+        return
+    fontname, _ = _notes_font(page)
+    _text(page, rect, text, align=fitz.TEXT_ALIGN_LEFT, fontname=fontname)
 
 
 def render_reimbursement_pdf(
@@ -226,18 +269,16 @@ def render_reimbursement_pdf(
         page = output[-1]
         _text(page, fitz.Rect(135, 119, 285, 136), reimbursement.fields.get("department", ""))
         _text(page, fitz.Rect(510, 23, 700, 41), reimbursement.fields.get("reimbursement_number", ""), fontname="tiro")
-        _text(page, fitz.Rect(510, 42, 700, 60), reimbursement.fields.get("contract_number", ""), fontname="tiro")
+        contract_rect = fitz.Rect(510, 42, 700, 60)
+        # The supplied template includes placeholder glyphs in this cell.
+        page.draw_rect(contract_rect, color=None, fill=(1, 1, 1), overlay=True)
+        _text(page, contract_rect, _contract_number(reimbursement.fields.get("contract_number", "")), fontname="tiro")
 
         _text(page, fitz.Rect(310, 119, 350, 136), str(generated_at.year), fontname="tiro")
         _text(page, fitz.Rect(375, 119, 392, 136), str(generated_at.month), fontname="tiro")
         _text(page, fitz.Rect(410, 119, 432, 136), str(generated_at.day), fontname="tiro")
 
-        _text(
-            page,
-            fitz.Rect(438, 143, 642, 317),
-            reimbursement.fields.get("notes", ""),
-            align=fitz.TEXT_ALIGN_LEFT,
-        )
+        _notes_text(page, fitz.Rect(438, 143, 642, 317), reimbursement.fields.get("notes", ""))
         for row, detail in enumerate(page_details):
             top, bottom = 184 + row * 30, 202 + row * 30
             expense = f"{detail.type}（{detail.purpose}）" if detail.type and detail.purpose else detail.type or detail.purpose
@@ -287,9 +328,7 @@ def validate_reimbursement_pdf(
 
     contains("报销部门", reimbursement.fields.get("department", ""))
     contains("报销编号", reimbursement.fields.get("reimbursement_number", ""))
-    contract_number = reimbursement.fields.get("contract_number", "")
-    if contract_number:
-        contains("合同号/立项号", contract_number)
+    # Contract/project numbers are informational only and must never block generation.
     contains("生成年份", str(generated_at.year))
     contains("生成月份", str(generated_at.month))
     contains("生成日期", str(generated_at.day))

@@ -17,6 +17,7 @@ RUN find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i
         libglib2.0-0 \
         libgl1 \
         libxcb1 \
+        fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
