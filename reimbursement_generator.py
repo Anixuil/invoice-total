@@ -291,6 +291,9 @@ def render_reimbursement_pdf(
 
     template.close()
     output.set_metadata({"title": "费用报销单", "author": "本地报销单生成工具"})
+    # Keep the mixed CJK font used by notes, but embed only glyphs that appear
+    # in this reimbursement instead of carrying the complete font into the PDF.
+    output.subset_fonts()
     output.save(str(output_path), garbage=4, deflate=True)
     output.close()
     return output_path
