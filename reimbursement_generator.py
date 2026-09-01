@@ -291,9 +291,9 @@ def render_reimbursement_pdf(
 
     template.close()
     output.set_metadata({"title": "费用报销单", "author": "本地报销单生成工具"})
-    # Keep the mixed CJK font used by notes, but embed only glyphs that appear
-    # in this reimbursement instead of carrying the complete font into the PDF.
-    output.subset_fonts()
+    # MuPDF's native subsetter can leave Debian's Noto CJK OpenType font intact.
+    # The FontTools fallback also handles that font while preserving mixed text.
+    output.subset_fonts(fallback=True)
     output.save(str(output_path), garbage=4, deflate=True)
     output.close()
     return output_path

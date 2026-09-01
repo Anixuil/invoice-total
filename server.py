@@ -12,6 +12,8 @@ API:
   GET  /api/jira/jobs/{id} 轮询 Jira 处理进度
   POST /api/weekly-report/import  上传部门项目周报 ZIP
   GET  /api/weekly-report/jobs/{id} 轮询周报处理进度
+  POST /api/reimbursement/jobs  上传 DOCX 并创建报销单生成任务
+  GET  /api/reimbursement/jobs/{id} 轮询报销单生成进度
 """
 
 import asyncio
@@ -72,6 +74,7 @@ app = FastAPI(title="本地文件处理工具", version="1.1.0")
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 MAX_SIZE = 20 * 1024 * 1024  # 20MB
+REIMBURSEMENT_MAX_SIZE = 50 * 1024 * 1024  # 报销信息 DOCX 50MB
 MAX_FILES = 50
 MAX_ARCHIVE_UNPACKED_SIZE = 200 * 1024 * 1024  # ZIP 展开总量 200MB
 WEEKLY_MAX_SIZE = 500 * 1024 * 1024  # 部门周报 ZIP/PPTX 单文件 500MB
@@ -103,6 +106,10 @@ IMAGE_PPT_JOB_TTL = 60 * 60
 IMAGE_PPT_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_image_ppt_jobs"
 IMAGE_PPT_JOBS = {}
 IMAGE_PPT_JOBS_LOCK = threading.Lock()
+REIMBURSEMENT_JOB_TTL = 60 * 60
+REIMBURSEMENT_JOB_ROOT = Path(tempfile.gettempdir()) / "invoice_total_reimbursement_jobs"
+REIMBURSEMENT_JOBS = {}
+REIMBURSEMENT_JOBS_LOCK = threading.Lock()
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -227,67 +234,245 @@ async def download_image_presentation(job_id: str):
     return FileResponse(output, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", filename="图片转PPT.pptx")
 
 
+def _build_reimbursement_result(source: Path, directory: Path, progress_callback=None) -> dict:
+    """Generate and validate every reimbursement while reporting real work stages."""
+    def report(stage: str, percent: int, detail: str) -> None:
+        if progress_callback:
+            progress_callback(stage, percent, detail)
+
+    report("解析报销信息", 18, "正在读取 DOCX 中的表单字段和报销明细")
+    reimbursements = parse_reimbursement_docx_many(source)
+    if not reimbursements:
+        raise ValueError("未识别到报销单内容")
+
+    total_count = len(reimbursements)
+    report("解析报销信息", 30, f"已识别 {total_count} 张报销单")
+    generated_at = datetime.now()
+    outputs: list[Path] = []
+    validations = []
+    item_span = 54 / total_count
+
+    for index, reimbursement in enumerate(reimbursements, start=1):
+        item_start = 32 + (index - 1) * item_span
+        report("校验表单内容", int(item_start), f"正在检查第 {index}/{total_count} 张报销单的必填字段")
+        claimant = reimbursement.fields.get("claimant", "")
+        if not claimant:
+            raise ValueError(f"第 {index} 张报销单未识别到“报销人”字段")
+        safe_claimant = "".join(char for char in claimant if char not in '\\/:*?\"<>|').strip()
+        number = reimbursement.fields.get("reimbursement_number", "")
+        safe_number = "".join(char for char in number if char not in '\\/:*?\"<>|').strip()
+        if not safe_claimant or not safe_number:
+            raise ValueError(f"第 {index} 张报销单的报销人或报销编号不能作为文件名")
+
+        output = directory / f"报销{safe_claimant}-{safe_number}.pdf"
+        report("绘制 PDF", int(item_start + item_span * .25), f"正在生成第 {index}/{total_count} 张报销单")
+        render_reimbursement_pdf(reimbursement, output, generated_at=generated_at)
+        report("核验生成结果", int(item_start + item_span * .72), f"正在核对第 {index}/{total_count} 张报销单的字段和金额")
+        validation = validate_reimbursement_pdf(reimbursement, output, generated_at)
+        if not validation["ok"]:
+            raise ValueError(f"第 {index} 张报销单整体核验未通过：{'、'.join(validation['errors'])}")
+        outputs.append(output)
+        validations.append(validation)
+
+    report("准备下载文件", 90, "正在整理已通过核验的报销单")
+    if len(outputs) == 1:
+        download_path = outputs[0]
+        media_type = "application/pdf"
+        filename = outputs[0].name
+    else:
+        download_path = directory / "报销单.pdf.zip"
+        with zipfile.ZipFile(download_path, "w", zipfile.ZIP_DEFLATED) as bundle:
+            for output in outputs:
+                bundle.write(output, output.name)
+        media_type = "application/zip"
+        filename = "报销单.zip"
+
+    report("准备下载文件", 96, "文件已生成，正在准备下载")
+    return {
+        "output": str(download_path),
+        "media_type": media_type,
+        "filename": filename,
+        "count": len(outputs),
+        "validation_checks": sum(len(item["checks"]) for item in validations),
+    }
+
+
+def _cleanup_reimbursement_jobs() -> None:
+    now = time.time()
+    expired = []
+    with REIMBURSEMENT_JOBS_LOCK:
+        for job_id, job in REIMBURSEMENT_JOBS.items():
+            if now - job.get("updated_at", now) > REIMBURSEMENT_JOB_TTL:
+                expired.append((job_id, job.get("directory")))
+        for job_id, _ in expired:
+            REIMBURSEMENT_JOBS.pop(job_id, None)
+    for _, directory in expired:
+        if directory:
+            shutil.rmtree(directory, ignore_errors=True)
+
+
+def _remove_reimbursement_job(job_id: str) -> None:
+    with REIMBURSEMENT_JOBS_LOCK:
+        job = REIMBURSEMENT_JOBS.pop(job_id, None)
+    if job and job.get("directory"):
+        shutil.rmtree(job["directory"], ignore_errors=True)
+
+
+def _update_reimbursement_job(job_id: str, **changes) -> None:
+    with REIMBURSEMENT_JOBS_LOCK:
+        job = REIMBURSEMENT_JOBS.get(job_id)
+        if job is not None:
+            job.update(changes)
+            job["updated_at"] = time.time()
+
+
+def _run_reimbursement_job(job_id: str) -> None:
+    with REIMBURSEMENT_JOBS_LOCK:
+        job = REIMBURSEMENT_JOBS.get(job_id)
+        if not job:
+            return
+        source = Path(job["source"])
+        directory = Path(job["directory"])
+
+    def progress(stage: str, percent: int, detail: str) -> None:
+        _update_reimbursement_job(job_id, progress={"stage": stage, "percent": percent, "detail": detail})
+
+    _update_reimbursement_job(
+        job_id,
+        status="processing",
+        progress={"stage": "开始处理", "percent": 15, "detail": "上传完成，正在启动报销单生成任务"},
+    )
+    try:
+        result = _build_reimbursement_result(source, directory, progress_callback=progress)
+        _update_reimbursement_job(
+            job_id,
+            status="done",
+            result=result,
+            progress={"stage": "生成完成", "percent": 100, "detail": f"{result['count']} 张报销单已通过整体核验"},
+        )
+    except ValueError as exc:
+        _update_reimbursement_job(
+            job_id,
+            status="error",
+            error=f"无法解析报销信息：{exc}",
+            progress={"stage": "生成失败", "percent": 100, "detail": "请检查报销信息后重新生成"},
+        )
+        shutil.rmtree(directory, ignore_errors=True)
+    except Exception as exc:
+        _update_reimbursement_job(
+            job_id,
+            status="error",
+            error=f"生成报销单失败：{exc}",
+            progress={"stage": "生成失败", "percent": 100, "detail": "生成过程中发生错误"},
+        )
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+@app.post("/api/reimbursement/jobs", status_code=202)
+async def create_reimbursement_job(file: UploadFile = File(...)):
+    """Upload a DOCX and start a background reimbursement generation job."""
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        await file.close()
+        raise HTTPException(status_code=400, detail="请上传 DOCX 格式的报销信息文件")
+    _cleanup_reimbursement_jobs()
+    REIMBURSEMENT_JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    job_id = uuid.uuid4().hex
+    directory = Path(tempfile.mkdtemp(prefix=f"{job_id}_", dir=REIMBURSEMENT_JOB_ROOT))
+    source = directory / "source.docx"
+    try:
+        size, _ = await _save_upload(file, source, max_size=REIMBURSEMENT_MAX_SIZE)
+        if size > REIMBURSEMENT_MAX_SIZE:
+            raise HTTPException(status_code=413, detail="报销信息文件不能超过 50MB")
+        if size == 0:
+            raise HTTPException(status_code=400, detail="报销信息文件内容为空")
+        with REIMBURSEMENT_JOBS_LOCK:
+            REIMBURSEMENT_JOBS[job_id] = {
+                "status": "queued",
+                "directory": str(directory),
+                "source": str(source),
+                "result": None,
+                "error": "",
+                "progress": {"stage": "等待处理", "percent": 12, "detail": "文件上传完成，任务正在排队"},
+                "updated_at": time.time(),
+            }
+        threading.Thread(target=_run_reimbursement_job, args=(job_id,), daemon=True).start()
+        return {"job_id": job_id}
+    except Exception:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+    finally:
+        await file.close()
+
+
+@app.get("/api/reimbursement/jobs/{job_id}")
+async def reimbursement_job_status(job_id: str):
+    _cleanup_reimbursement_jobs()
+    with REIMBURSEMENT_JOBS_LOCK:
+        job = REIMBURSEMENT_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="报销单生成任务不存在或已清理")
+        result = job.get("result") or {}
+        return {
+            "status": job["status"],
+            "progress": dict(job["progress"]),
+            "error": job.get("error", ""),
+            "count": result.get("count", 0),
+            "download_url": f"/api/reimbursement/jobs/{job_id}/download" if job["status"] == "done" else "",
+        }
+
+
+@app.get("/api/reimbursement/jobs/{job_id}/download")
+async def download_reimbursement_job(job_id: str):
+    _cleanup_reimbursement_jobs()
+    with REIMBURSEMENT_JOBS_LOCK:
+        job = REIMBURSEMENT_JOBS.get(job_id)
+        result = dict(job.get("result") or {}) if job else {}
+    output = Path(result.get("output", "")) if result else None
+    if not job or job.get("status") != "done" or output is None or not output.is_file():
+        raise HTTPException(status_code=404, detail="报销单生成结果不存在或尚未完成")
+    cleanup = BackgroundTasks()
+    cleanup.add_task(_remove_reimbursement_job, job_id)
+    return FileResponse(
+        output,
+        media_type=result["media_type"],
+        filename=result["filename"],
+        background=cleanup,
+        headers={
+            "X-Reimbursement-Validation": "passed",
+            "X-Reimbursement-Validation-Checks": str(result["validation_checks"]),
+            "X-Reimbursement-Count": str(result["count"]),
+        },
+    )
+
+
 @app.post("/api/reimbursement/generate")
 async def generate_reimbursement(file: UploadFile = File(...)):
-    """Create a reimbursement PDF from the exported DOCX label/value document."""
+    """Create a reimbursement PDF synchronously for backwards compatibility."""
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="请上传 DOCX 格式的报销信息文件")
     directory = Path(tempfile.mkdtemp(prefix="reimbursement_"))
     try:
         source = directory / "source.docx"
-        size, _ = await _save_upload(file, source, max_size=10 * 1024 * 1024)
-        if size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="报销信息文件不能超过 10MB")
+        size, _ = await _save_upload(file, source, max_size=REIMBURSEMENT_MAX_SIZE)
+        if size > REIMBURSEMENT_MAX_SIZE:
+            raise HTTPException(status_code=413, detail="报销信息文件不能超过 50MB")
         try:
-            reimbursements = parse_reimbursement_docx_many(source)
-            if not reimbursements:
-                raise ValueError("未识别到报销单内容")
-            generated_at = datetime.now()
-            outputs: list[Path] = []
-            validations = []
-            for index, reimbursement in enumerate(reimbursements, start=1):
-                claimant = reimbursement.fields.get("claimant", "")
-                if not claimant:
-                    raise ValueError(f"第 {index} 张报销单未识别到“报销人”字段")
-                safe_claimant = "".join(char for char in claimant if char not in '\\/:*?\"<>|').strip()
-                number = reimbursement.fields.get("reimbursement_number", "")
-                safe_number = "".join(char for char in number if char not in '\\/:*?\"<>|').strip()
-                if not safe_claimant or not safe_number:
-                    raise ValueError(f"第 {index} 张报销单的报销人或报销编号不能作为文件名")
-                output = directory / f"报销{safe_claimant}-{safe_number}.pdf"
-                render_reimbursement_pdf(reimbursement, output, generated_at=generated_at)
-                validation = validate_reimbursement_pdf(reimbursement, output, generated_at)
-                if not validation["ok"]:
-                    raise ValueError(f"第 {index} 张报销单整体核验未通过：{'、'.join(validation['errors'])}")
-                outputs.append(output)
-                validations.append(validation)
+            result = _build_reimbursement_result(source, directory)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"无法解析报销信息：{exc}") from exc
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"生成报销单失败：{exc}") from exc
         cleanup = BackgroundTasks()
         cleanup.add_task(shutil.rmtree, directory, ignore_errors=True)
-        if len(outputs) == 1:
-            response = FileResponse(
-                outputs[0],
-                media_type="application/pdf",
-                filename=outputs[0].name,
-                background=cleanup,
-            )
-        else:
-            archive = directory / "报销单.pdf.zip"
-            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
-                for output in outputs:
-                    bundle.write(output, output.name)
-            response = FileResponse(
-                archive,
-                media_type="application/zip",
-                filename="报销单.zip",
-                background=cleanup,
-            )
+        response = FileResponse(
+            result["output"],
+            media_type=result["media_type"],
+            filename=result["filename"],
+            background=cleanup,
+        )
         response.headers["X-Reimbursement-Validation"] = "passed"
-        response.headers["X-Reimbursement-Validation-Checks"] = str(sum(len(item["checks"]) for item in validations))
-        response.headers["X-Reimbursement-Count"] = str(len(outputs))
+        response.headers["X-Reimbursement-Validation-Checks"] = str(result["validation_checks"])
+        response.headers["X-Reimbursement-Count"] = str(result["count"])
         return response
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)
