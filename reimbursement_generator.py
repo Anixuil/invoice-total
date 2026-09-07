@@ -327,7 +327,13 @@ def validate_reimbursement_pdf(
             if required:
                 errors.append(name)
             return
-        check(name, re.sub(r"\s+", "", value) in compact_text)
+        # Optional informational fields must not block generation when a
+        # platform-specific PDF font/text extractor cannot recover them.
+        # Required fields below still fail closed as before.
+        if required:
+            check(name, re.sub(r"\s+", "", value) in compact_text)
+        elif re.sub(r"\s+", "", value) in compact_text:
+            checks.append(name)
 
     contains("报销部门", reimbursement.fields.get("department", ""))
     contains("报销编号", reimbursement.fields.get("reimbursement_number", ""))
