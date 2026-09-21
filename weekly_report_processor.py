@@ -600,6 +600,20 @@ def process_weekly_report(
         })
 
     deck_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "项目周报") for item in deck_projects]
+    deck_keys = {item["key"] for item in deck_projects}
+    for item in meeting_projects:
+        slides = by_key.get(item["key"], [])
+        if item["key"] in deck_keys or not slides:
+            continue
+        project = {**item, "template_slide": None}
+        all_issues.append({
+            "severity": "info", "code": "meeting_project_added_to_deck", "label": "会议项目已加入总周报",
+            "file": "、".join(sorted({slide["file"] for slide in slides})), "slide": 0,
+            "location": "总周报", "project": item["title"],
+            "detail": f"项目“{item['title']}”仅配置在周例会模板中，已按上传 PPT 原页追加到总周报。",
+            "suggestion": "如需为空项目生成固定占位页，可再将该项目加入 PPT 模板。",
+        })
+        deck_results.append(_project_result(project, slides, all_issues, "周例会模板项目"))
     added_results = []
     for key, slides in added_projects.items():
         title = next((item["title"] for item in slides if item["title"]), key)
@@ -1843,6 +1857,45 @@ def _paragraph_copy(template_paragraph, value: str, color: str | None = None):
     return paragraph
 
 
+WORD_FONT = "宋体"
+MEETING_BODY_FONT_SIZE = 12  # 小四
+
+
+def _set_document_font(document: Document, font_name: str = WORD_FONT) -> None:
+    for style in document.styles:
+        if not getattr(style, "font", None):
+            continue
+        style.font.name = font_name
+        rfonts = style._element.rPr.rFonts
+        for key in ("ascii", "hAnsi", "eastAsia", "cs"):
+            rfonts.set(qn(f"w:{key}"), font_name)
+    for paragraph in document.paragraphs:
+        for run in paragraph.runs:
+            run.font.name = font_name
+            rpr = run._r.get_or_add_rPr()
+            rfonts = rpr.rFonts
+            for key in ("ascii", "hAnsi", "eastAsia", "cs"):
+                rfonts.set(qn(f"w:{key}"), font_name)
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = font_name
+                        rpr = run._r.get_or_add_rPr()
+                        rfonts = rpr.rFonts
+                        for key in ("ascii", "hAnsi", "eastAsia", "cs"):
+                            rfonts.set(qn(f"w:{key}"), font_name)
+
+
+def _set_meeting_body_size(cell) -> None:
+    for paragraph in cell.paragraphs:
+        if PROJECT_HEADING.match(_text(paragraph.text)):
+            continue
+        for run in paragraph.runs:
+            run.font.size = Pt(MEETING_BODY_FONT_SIZE)
+
+
 def _meeting_bullet_value(value: str) -> str:
     clean = re.sub(r"^[\s\u00b7\u2022]+", "", _text(value))
     return f"\u00b7 {clean}" if clean else "\u00b7 "
@@ -1882,6 +1935,8 @@ def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, te
             for value in values:
                 tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), color))
             tc.append(deepcopy(blank_template._p))
+    _set_meeting_body_size(cell)
+    _set_document_font(document)
     document.save(target)
 
 
