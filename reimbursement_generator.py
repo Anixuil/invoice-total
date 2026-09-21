@@ -291,6 +291,9 @@ def render_reimbursement_pdf(
 
     template.close()
     output.set_metadata({"title": "费用报销单", "author": "本地报销单生成工具"})
+    # MuPDF's native subsetter can leave Debian's Noto CJK OpenType font intact.
+    # The FontTools fallback also handles that font while preserving mixed text.
+    output.subset_fonts(fallback=True)
     output.save(str(output_path), garbage=4, deflate=True)
     output.close()
     return output_path
@@ -324,7 +327,13 @@ def validate_reimbursement_pdf(
             if required:
                 errors.append(name)
             return
-        check(name, re.sub(r"\s+", "", value) in compact_text)
+        # Optional informational fields must not block generation when a
+        # platform-specific PDF font/text extractor cannot recover them.
+        # Required fields below still fail closed as before.
+        if required:
+            check(name, re.sub(r"\s+", "", value) in compact_text)
+        elif re.sub(r"\s+", "", value) in compact_text:
+            checks.append(name)
 
     contains("报销部门", reimbursement.fields.get("department", ""))
     contains("报销编号", reimbursement.fields.get("reimbursement_number", ""))

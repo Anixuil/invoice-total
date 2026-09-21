@@ -595,8 +595,8 @@ function clearWeeklyInput(button, statKey) {
 
 function isClearClick(event, button) {
   const rect = button.getBoundingClientRect();
-  if (button.classList.contains('is-processing')) return true;
-  return button.classList.contains('is-ready') && (event.clientX >= rect.right - 80 || event.offsetX >= button.clientWidth - 80);
+  const inClearArea = event.clientX >= rect.right - 80 || event.offsetX >= button.clientWidth - 80;
+  return (button.classList.contains('is-ready') || button.classList.contains('is-processing')) && inClearArea;
 }
 
 function saveWeeklyStatInput(statKey, inputType, file) {
@@ -627,6 +627,7 @@ function clearGeneratedAction(button, statKey = '') {
   cancelWeeklyScan(button);
   clearWeeklyJobProgress(button);
   button.textContent = button.dataset.defaultLabel || '生成文件';
+  button.classList.remove('is-ready', 'is-processing', 'is-awaiting-paste');
   document.getElementById('newTaskStatus').textContent = '结果已删除，可重新生成';
 }
 
@@ -748,15 +749,24 @@ document.addEventListener('click', event => {
   const button = event.target.closest('#newTaskExcelButton, #newTaskPasteButton, #newTaskGenerateButton, [data-stat-upload], [data-stat-paste], [data-stat-generate]');
   if (!button) return;
   const isGenerateButton = button.id === 'newTaskGenerateButton' || button.dataset.statGenerate;
-  if (isGenerateButton && button.classList.contains('is-processing')) {
+  const hasFailedGeneration = Boolean(button.closest('.weekly-stat-row')?.querySelector('.weekly-job-progress.is-error'));
+  // Clear clicks must be consumed before any of the legacy target handlers can
+  // interpret the same button as a preview or download action.
+  if (isClearClick(event, button)) {
+    event.preventDefault();
+    if (button.id === 'newTaskExcelButton' || button.id === 'newTaskPasteButton') clearWeeklyInput(button, 'new-tasks');
+    else if (button.id === 'newTaskGenerateButton') clearGeneratedAction(button, 'new-tasks');
+    else if (button.dataset.statUpload) clearWeeklyInput(button, button.dataset.statUpload);
+    else if (button.dataset.statPaste) clearWeeklyInput(button, button.dataset.statPaste);
+    else if (button.dataset.statGenerate) clearGeneratedAction(button, button.dataset.statGenerate);
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (isGenerateButton && button.classList.contains('is-processing') && !hasFailedGeneration) {
     event.preventDefault();
     event.stopImmediatePropagation();
     return;
   }
-  // Let the dedicated clear handlers process delete clicks. Processing upload
-  // controls remain cancellable; a ready button keeps its center for preview
-  // or download and reserves its right edge for delete.
-  if (isClearClick(event, button)) return;
   if (isGenerateButton) {
     // Handle generation here with DOM file fallbacks. The page historically
     // had several generation listeners; this capture path is the single
@@ -1251,7 +1261,6 @@ async function uploadScreenshotStat(statKey, screenshot, actionButton) {
         actionButton.dataset.weeklyJobId = jobId;
         weeklyStatResults[statKey] = status.result.summary || [];
         generatedStatKey = statKey;
-        downloadWeeklyStatFile(jobId);
         completeWeeklyGeneration(actionButton, weeklyStatFileNames[statKey] || '统计结果.xlsx');
         break;
       }
