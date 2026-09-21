@@ -38,13 +38,16 @@ PROJECT_HEADING = re.compile(
 )
 
 SECTION_LABELS = {
-    "current": ("本周工作完成情况", "本周完成情况", "本周进度"),
+    "current": ("本周工作完成情况", "本周完成情况", "本周进度", "本周进展"),
     "next": ("下周计划", "下周工作计划", "下周研发计划"),
     "issues": ("本周问题", "问题、风险", "问题"),
 }
 SECTION_DISPLAY = {"current": "本周工作完成情况：", "next": "下周计划：", "issues": "本周问题："}
-PPT_BODY_FONT = "思源黑体CN VF Light"
-PPT_REPORTER_FONT = "思源黑体 CN Bold"
+# Use one family everywhere; retain emphasis through the existing bold flags.
+# The previous variant-specific names ("CN VF Light" / "CN Bold") made the
+# generated deck report different fonts even when the visual weight matched.
+PPT_BODY_FONT = "思源黑体 CN VF Light"
+PPT_REPORTER_FONT = PPT_BODY_FONT
 PPT_ISSUE_COLOR = RGBColor(255, 0, 0)
 PPT_BODY_MARGIN_LEFT = Pt(8)
 PPT_BODY_MARGIN_TOP = Pt(6)
@@ -63,8 +66,10 @@ TITLE_ALIASES = {
     "应急演练指挥调度平台": "应急指挥调度平台",
     "中信证劵应急指挥调度平台二期": "中信证券应急指挥调度平台二期",
     "国信指标平台": "国信证券指标管理平台",
-    "五矿证券": "五矿证券日志管理项目",
-    "五矿日志项目": "五矿证券日志管理项目",
+    "五矿证券": "金智维K-Loghub日志平台",
+    "五矿日志项目": "金智维K-Loghub日志平台",
+    "五矿证券日志管理项目": "金智维K-Loghub日志平台",
+    "金智维K-Loghub": "金智维K-Loghub日志平台",
     "墨巡miciusops智能运维平台": "墨巡MiciusOps智能运维平台",
     "市场工作成果与计划": "本周市场工作成果与计划",
 }
@@ -385,6 +390,27 @@ def _audit_shape_bounds(entries: list[dict[str, Any]], width: int, height: int, 
     return issues
 
 
+def _element_relationships(slide, element) -> list[Any]:
+    """返回对象 XML 引用的幻灯片关系，忽略空或失效的 rId。"""
+    relationships = []
+    seen = set()
+    relationship_namespace = "{" + qn("r:id").split("}")[0].strip("{") + "}"
+    for node in element.iter():
+        for attribute, relationship_id in node.attrib.items():
+            if not attribute.startswith(relationship_namespace) or not relationship_id or relationship_id in seen:
+                continue
+            try:
+                relationships.append(slide.part.rels[relationship_id])
+                seen.add(relationship_id)
+            except KeyError:
+                continue
+    return relationships
+
+
+def _has_embedded_package(slide, element) -> bool:
+    return any(relationship.reltype == RT.PACKAGE for relationship in _element_relationships(slide, element))
+
+
 def parse_presentation_source(path: str | Path, display_name: str, expected: list[dict[str, Any]]) -> dict[str, Any]:
     presentation = Presentation(path)
     width, height = int(presentation.slide_width), int(presentation.slide_height)
@@ -420,6 +446,15 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
         project_title = best_project.get("title", "")
         if (best_mode in {"alias", "similar"} or title_mode == "inferred") and project_title:
             issues.append({"severity": "warning", "code": "title_alias", "label": "标题需确认", "file": display_name, "slide": slide_number, "location": f"对象 {next((e['path'] for e in entries if e['text'] == title), '标题区域')}", "project": project_title, "detail": f"源标题“{title}”按别名或相似规则对应“{project_title}”。", "suggestion": "确认该页确实属于对应项目。"})
+        for entry in entries:
+            if not _has_embedded_package(slide, entry["shape"]._element):
+                continue
+            issues.append({
+                "severity": "warning", "code": "embedded_package_skipped", "label": "嵌入对象未合并",
+                "file": display_name, "slide": slide_number, "location": f"对象 {entry['path']}", "project": project_title,
+                "detail": "该对象包含嵌入式 Office 文件，生成总周报时将跳过此对象，其余页面内容仍会正常合并。",
+                "suggestion": "如需在总周报中显示该对象，请在源 PPT 中将其转换为图片后重新上传。",
+            })
         placeholders = [entry for entry in entries if re.search(r"X{2,}|Ｘ{2,}", entry["text"])]
         for entry in placeholders:
             issues.append({"severity": "error", "code": "placeholder", "label": "模板占位符未替换", "file": display_name, "slide": slide_number, "location": f"对象 {entry['path']}", "project": project_title, "detail": f"发现未替换内容：{entry['text'][:80]}", "suggestion": "补充真实周报内容后再合并。"})
@@ -534,6 +569,19 @@ def process_weekly_report(
             parsed_files.append({"file": display_name, "slide_count": 0, "slides": [], "issues": [artifact_issue]})
             all_issues.append(artifact_issue)
             continue
+        # A completely blank PPT is usually an accidental upload/placeholder.
+        # Ignore it entirely instead of producing a misleading "no project
+        # slides" warning or an empty generated project page.
+        blank_presentation = Presentation(path)
+        if not any(
+            _text(shape["shape"].text).strip()
+            for slide in blank_presentation.slides
+            for shape in _flatten_shapes(slide.shapes)
+            if getattr(shape["shape"], "has_text_frame", False)
+        ):
+            parsed_files.append({"file": display_name, "slide_count": len(blank_presentation.slides), "slides": [], "issues": []})
+            _notify(progress_callback, "审核项目 PPT", 12 + round(index / max(len(presentation_sources), 1) * 52), f"已忽略空白 PPT：{display_name}")
+            continue
         parsed = parse_presentation_source(path, display_name, expected)
         parsed_files.append(parsed)
         all_issues.extend(parsed["issues"])
@@ -557,6 +605,24 @@ def process_weekly_report(
         all_issues.extend(_audit_project_pages(project, by_key.get(project["key"], [])))
 
     deck_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "项目周报") for item in deck_projects]
+    deck_keys = {item["key"] for item in deck_projects}
+    # The Word meeting template may be updated before the PPT template.  A
+    # project that exists only in Word is still a valid uploaded PPT project;
+    # include its source pages in the generated deck instead of losing it
+    # between the "known project" and "new project" branches.
+    for item in meeting_projects:
+        slides = by_key.get(item["key"], [])
+        if item["key"] in deck_keys or not slides:
+            continue
+        project = {**item, "template_slide": None}
+        all_issues.append({
+            "severity": "info", "code": "meeting_project_added_to_deck", "label": "会议项目已加入总周报",
+            "file": "、".join(sorted({slide["file"] for slide in slides})), "slide": 0,
+            "location": "总周报", "project": item["title"],
+            "detail": f"项目“{item['title']}”仅配置在周例会模板中，已按上传 PPT 原页追加到总周报。",
+            "suggestion": "如需为空项目生成固定占位页，可再将该项目加入 PPT 模板。",
+        })
+        deck_results.append(_project_result(project, slides, all_issues, "周例会模板项目"))
     added_results = []
     for key, slides in added_projects.items():
         title = next((item["title"] for item in slides if item["title"]), key)
@@ -683,6 +749,10 @@ def _clone_source_slide(presentation: Presentation, source_slide):
         _remove_element(shape._element)
     for shape in source_slide.shapes:
         element = deepcopy(shape._element)
+        # OLE/嵌入式 Office 文件属于 package 关系，无法直接跨 PPTX 复制。
+        # 审核阶段会记录明确警告；生成时仅跳过该对象，避免整份周报失败。
+        if _has_embedded_package(source_slide, element):
+            continue
         _copy_relationships(source_slide, target_slide, element)
         target_slide.shapes._spTree.insert_element_before(element, "p:extLst")
     return target_slide
@@ -787,20 +857,12 @@ def _fit_body_font(shape, minimum: int = 9) -> None:
 
 
 def _format_project_body(shape) -> None:
-    """Apply the project-report body formatting."""
+    """Apply non-destructive project-report body formatting."""
     shape.text_frame.margin_left = PPT_BODY_MARGIN_LEFT
     shape.text_frame.margin_top = PPT_BODY_MARGIN_TOP
-    lines = []
-    for paragraph in shape.text_frame.paragraphs:
-        value = re.sub(r"^[\s·•]+", "", _text(paragraph.text))
-        if value:
-            lines.append(f"· {value}")
-    if lines and "\n".join(lines) != shape.text:
-        shape.text = "\n".join(lines)
     shape.text_frame.word_wrap = True
     for paragraph in shape.text_frame.paragraphs:
         paragraph.alignment = PP_ALIGN.LEFT
-        paragraph.level = 0
         for run in paragraph.runs:
             _set_ppt_run_font(run)
 
@@ -818,11 +880,31 @@ def _set_ppt_run_font(run, font_name: str = PPT_BODY_FONT, bold: bool | None = N
         element.set("typeface", font_name)
 
 
+def _set_presentation_font(presentation: Presentation, font_name: str = PPT_BODY_FONT) -> None:
+    """Set only the font family; preserve size, weight, color, and layout."""
+    def set_paragraphs(paragraphs) -> None:
+        for paragraph in paragraphs:
+            for run in paragraph.runs:
+                _set_ppt_run_font(run, font_name)
+
+    def visit(shapes) -> None:
+        for shape in shapes:
+            if getattr(shape, "has_text_frame", False):
+                set_paragraphs(shape.text_frame.paragraphs)
+            if getattr(shape, "has_table", False):
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        set_paragraphs(cell.text_frame.paragraphs)
+            if getattr(shape, "shape_type", None) == MSO_SHAPE_TYPE.GROUP:
+                visit(shape.shapes)
+
+    for slide in presentation.slides:
+        visit(slide.shapes)
+
+
 def _set_project_body_font(shape, font_size: int, color: RGBColor | None = None) -> None:
     for paragraph in shape.text_frame.paragraphs:
         paragraph.alignment = PP_ALIGN.LEFT
-        paragraph.level = 0
-        _clear_paragraph_bullets(paragraph)
         for run in paragraph.runs:
             _set_ppt_run_font(run)
             run.font.size = Pt(font_size)
@@ -837,29 +919,13 @@ def _set_shape_text_color(shape, color: RGBColor) -> None:
 
 
 def _apply_issue_text_color(slide, issue_text: str) -> None:
-    """Color the issue label and its parsed source text without layout assumptions."""
-    issue_values = {
-        _normalized_content(line)
-        for line in _section_lines(issue_text)
-        if _normalized_content(line)
-    }
+    """Color only the issue label; preserve the source body's own formatting."""
     entries = _flatten_shapes(slide.shapes)
-    issue_labels = [entry for entry in entries if _is_section_label(entry["text"], "issues")]
     for entry in entries:
         shape = entry["shape"]
         if not getattr(shape, "has_text_frame", False):
             continue
         if _is_section_label(entry["text"], "issues"):
-            _set_shape_text_color(shape, PPT_ISSUE_COLOR)
-            continue
-        if _text_role(entry["text"]) != "body":
-            continue
-        content = _normalized_content(entry["text"])
-        is_adjacent_to_issue_label = any(
-            label["left"] - 100000 <= entry["left"] < label["left"] + label["width"]
-            for label in issue_labels
-        )
-        if any(value in content for value in issue_values) or is_adjacent_to_issue_label:
             _set_shape_text_color(shape, PPT_ISSUE_COLOR)
 
 
@@ -910,8 +976,7 @@ def _format_project_slide_bodies(slide) -> None:
         if _text_role(entry["text"]) != "body":
             continue
         font_size = _project_body_font_size(shape)
-        color = PPT_ISSUE_COLOR if _body_section_key(entries, entry) == "issues" else None
-        _set_project_body_font(shape, font_size, color)
+        _set_project_body_font(shape, font_size)
 
 
 def _shape_capacity_for_font(shape, font_size: float) -> tuple[int, int]:
@@ -1053,9 +1118,7 @@ def _generation_qa(
                     content_ok += 1
                 else:
                     repairs += 1
-                if group.get("preserve_source_title"):
-                    _replace_title(slide, expected_title, expected_reporter)
-                else:
+                if not group.get("preserve_source_title"):
                     _replace_title(slide, group["project"]["title"], group["project"]["reporter"])
             source_entries = group.get("source_body_texts") or _body_texts(group["source_slide"])
             page_maps = [
@@ -1103,7 +1166,11 @@ def _generation_qa(
                                 "detail": "自动缩放和分页后，文本量仍超过当前文本框估算容量。",
                                 "suggestion": "建议人工检查该页文本框实际显示效果。",
                             })
-                        reference_entry = _matching_template_entry(entry, reference_entries) if reference_entries else None
+                        reference_entry = (
+                            _matching_template_entry(entry, reference_entries)
+                            if reference_entries and not group.get("preserve_source_style")
+                            else None
+                        )
                         if reference_entry is not None:
                             style_total += 1
                             if _text_style_matches(shape, reference_entry["shape"]):
@@ -1111,7 +1178,8 @@ def _generation_qa(
                             else:
                                 _copy_text_style(shape, reference_entry["shape"])
                                 repairs += 1
-                        _format_project_slide_bodies(slide)
+                        if not group.get("preserve_source_style"):
+                            _format_project_slide_bodies(slide)
                     layout_total += 1
                     if entry["left"] >= 0 and entry["top"] >= 0 and entry["left"] + entry["width"] <= presentation.slide_width and entry["top"] + entry["height"] <= presentation.slide_height:
                         layout_ok += 1
@@ -1172,6 +1240,8 @@ def _replace_title(slide, title: str, reporter: str) -> None:
 def _finalize_generated_titles(generated_groups: list[dict[str, Any]]) -> None:
     """Restore reporter styling after QA has copied template text styles."""
     for group in generated_groups:
+        if group.get("preserve_source_title"):
+            continue
         if group.get("preserve_source_title"):
             title, reporter, _ = _slide_title(_flatten_shapes(group["source_slide"].shapes))
         else:
@@ -1259,41 +1329,6 @@ def _section_body_entries(entries: list[dict[str, Any]], key: str) -> list[dict[
             entry["left"],
         ),
     )
-
-
-def _write_project_sections(slide, section_values: dict[str, str]) -> None:
-    """Write the audited section values back into a cloned source project slide."""
-    entries = _flatten_shapes(slide.shapes)
-    # The issue column in the supplied template is a grouped shape whose body
-    # overlaps the main column geometrically. Its content is preserved here;
-    # only the independently laid-out current/next-week sections are rebuilt.
-    for key in ("current", "next"):
-        bodies = _section_body_entries(entries, key)
-        if not bodies:
-            continue
-        bodies[0]["shape"].text = section_values.get(key, "") or "无"
-        for entry in bodies[1:]:
-            entry["shape"].text = ""
-    _format_project_slide_bodies(slide)
-    _apply_issue_text_color(slide, section_values.get("issues", ""))
-
-
-def _normalize_source_project_layout(slide) -> None:
-    """统一源项目页正文的左上对齐和项目符号，避免沿用错误的居中属性。"""
-    for entry in _flatten_shapes(slide.shapes):
-        shape = entry["shape"]
-        if not entry["text"] or not getattr(shape, "has_text_frame", False):
-            continue
-        if PPT_HEADING.match(entry["text"]) or _is_section_label(entry["text"]):
-            continue
-        shape.text_frame.margin_left = 0
-        shape.text_frame.vertical_anchor = MSO_ANCHOR.TOP
-        for paragraph in shape.text_frame.paragraphs:
-            if not paragraph.text.strip():
-                continue
-            paragraph.alignment = PP_ALIGN.LEFT
-            _clear_paragraph_bullets(paragraph)
-        _format_project_body(shape)
 
 
 def build_weekly_presentation(
@@ -1395,10 +1430,12 @@ def build_weekly_presentation(
             if _is_outro_slide(source_slide):
                 continue
             cloned = _clone_source_slide(presentation, source_slide)
-            _write_project_sections(cloned, source)
-            _normalize_source_project_layout(cloned)
-            _apply_issue_text_color(cloned, source.get("issues", ""))
-            source_chunks = _overflow_chunks(cloned)
+            # The uploaded project page is authoritative. Copy it verbatim:
+            # do not rewrite text boxes, resize fonts, recolor text, or move
+            # section labels during assembly.
+            # 上传的项目页已由汇报人完成排版，保留其字号、颜色、加粗、
+            # 项目符号和段落结构，不再按估算容量重排或分页。
+            source_chunks = {}
             place_before_outro(cloned)
             generated_groups.append({
                 "project": project,
@@ -1407,6 +1444,7 @@ def build_weekly_presentation(
                 "template_slide": template_slide,
                 "style_reference": cloned,
                 "preserve_source_title": True,
+                "preserve_source_style": True,
                 "chunks": source_chunks,
                 "source_body_texts": _body_texts(cloned),
                 "issue_text": source.get("issues", ""),
@@ -1432,6 +1470,7 @@ def build_weekly_presentation(
     _retain_single_outro_slide(presentation)
     qa = _generation_qa(presentation, generated_groups, progress_callback=progress_callback)
     _finalize_generated_titles(generated_groups)
+    _set_presentation_font(presentation)
     result["qa"] = qa
     result["issues"].extend(qa["issues"])
     result["stats"]["qa_score"] = qa["score"]
@@ -1480,6 +1519,60 @@ def _paragraph_copy(template_paragraph, value: str, color: str | None = None):
     return paragraph
 
 
+# The department meeting template and all generated content use SimSun (宋体).
+WORD_FONT = "宋体"
+
+
+def _set_word_run_font(run, font_name: str = WORD_FONT) -> None:
+    """Apply the same East Asian/Latin/complex-script font to a Word run."""
+    run.font.name = font_name
+    rpr = run._r.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = rpr.makeelement(qn("w:rFonts"), {})
+        rpr.insert(0, rfonts)
+    for key in ("ascii", "hAnsi", "eastAsia", "cs"):
+        rfonts.set(qn(f"w:{key}"), font_name)
+
+
+def _set_document_font(document: Document, font_name: str = WORD_FONT) -> None:
+    """Normalize all generated DOCX text without changing size, color, or bold."""
+    for style in document.styles:
+        if not getattr(style, "font", None):
+            continue
+        style.font.name = font_name
+        style._element.rPr.rFonts.set(qn("w:ascii"), font_name)
+        style._element.rPr.rFonts.set(qn("w:hAnsi"), font_name)
+        style._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+        style._element.rPr.rFonts.set(qn("w:cs"), font_name)
+
+    def apply_paragraphs(paragraphs):
+        for paragraph in paragraphs:
+            for run in paragraph.runs:
+                _set_word_run_font(run, font_name)
+
+    apply_paragraphs(document.paragraphs)
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                apply_paragraphs(cell.paragraphs)
+    for section in document.sections:
+        apply_paragraphs(section.header.paragraphs)
+        apply_paragraphs(section.footer.paragraphs)
+
+
+MEETING_BODY_FONT_SIZE = 12  # 小四
+
+
+def _set_meeting_body_size(cell) -> None:
+    """Set generated meeting body paragraphs to 小四 without changing headings."""
+    for paragraph in cell.paragraphs:
+        if PROJECT_HEADING.match(_text(paragraph.text)):
+            continue
+        for run in paragraph.runs:
+            run.font.size = Pt(MEETING_BODY_FONT_SIZE)
+
+
 def _meeting_bullet_value(value: str) -> str:
     clean = re.sub(r"^[\s\u00b7\u2022]+", "", _text(value))
     return f"\u00b7 {clean}" if clean else "\u00b7 "
@@ -1519,6 +1612,8 @@ def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, te
             for value in values:
                 tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), color))
             tc.append(deepcopy(blank_template._p))
+    _set_meeting_body_size(cell)
+    _set_document_font(document)
     document.save(target)
 
 

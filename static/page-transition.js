@@ -24,6 +24,9 @@
       if (link.dataset.routeBound === 'true') return;
       link.dataset.routeBound = 'true';
       link.addEventListener('click', event => {
+        // 周报页包含目录选择和大文件上传。必须完整加载页面，避免 SPA
+        // 缓存恢复后保留失效的 File 对象或事件闭包，出现 Failed to fetch。
+        if (link.pathname === '/weekly-report') return;
         if (
         navigationPending ||
           event.defaultPrevented ||

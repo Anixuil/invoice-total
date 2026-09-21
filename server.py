@@ -28,7 +28,7 @@ from pathlib import Path
 from pathlib import PurePosixPath
 
 import pymupdf as fitz
-from fastapi import BackgroundTasks, Body, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -145,7 +145,10 @@ async def jira_index():
 
 @app.get("/weekly-report")
 async def weekly_report_index():
-    return FileResponse(STATIC / "weekly-report.html")
+    return FileResponse(
+        STATIC / "weekly-report.html",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 @app.get("/reimbursement")
@@ -1238,6 +1241,84 @@ async def _collect_weekly_folder(uploads: list[UploadFile], target_directory: Pa
         else:
             target.unlink(missing_ok=True)
     return presentation_sources, manifest, total_size
+
+
+@app.post("/api/weekly-report/folder/start")
+async def weekly_report_folder_start():
+    """创建逐文件上传会话，避免浏览器一次提交大型 multipart 请求。"""
+    _cleanup_weekly_jobs()
+    WEEKLY_JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    job_id = uuid.uuid4().hex
+    job_directory = Path(tempfile.mkdtemp(prefix=f"{job_id}_", dir=WEEKLY_JOB_ROOT))
+    job = {
+        "job_id": job_id, "status": "uploading", "source": "文件夹上传",
+        "directory": str(job_directory), "presentation_sources": [], "manifest": [],
+        "uploaded_size": 0, "updated_at": time.time(),
+        "progress": {"stage": "上传文件", "percent": 1, "detail": "等待上传项目周报"},
+        "result": None, "error": "",
+    }
+    with WEEKLY_JOBS_LOCK:
+        WEEKLY_JOBS[job_id] = job
+    return {"job_id": job_id}
+
+
+@app.post("/api/weekly-report/folder/{job_id}/file")
+async def weekly_report_folder_file(
+    job_id: str,
+    file: UploadFile = File(...),
+    relative_path: str = Query(""),
+):
+    """向文件夹上传会话追加一个 PPTX。"""
+    with WEEKLY_JOBS_LOCK:
+        job = WEEKLY_JOBS.get(job_id)
+        if not job or job.get("status") != "uploading":
+            raise HTTPException(status_code=404, detail="文件夹上传任务不存在或已结束")
+        directory = Path(job["directory"])
+        file_index = len(job["presentation_sources"])
+    display_path = _safe_upload_name(relative_path or file.filename or "unnamed.pptx")
+    if Path(display_path).suffix.lower() != ".pptx":
+        await file.close()
+        return {"ignored": True}
+    if file_index >= 50:
+        await file.close()
+        raise HTTPException(status_code=400, detail="单次最多解析 50 个 PPTX 文件")
+    target = directory / f"folder_{file_index}.pptx"
+    try:
+        size, _ = await _save_upload(file, target, WEEKLY_MAX_SIZE)
+    finally:
+        await file.close()
+    with WEEKLY_JOBS_LOCK:
+        current = WEEKLY_JOBS.get(job_id)
+        if not current or current.get("status") != "uploading":
+            target.unlink(missing_ok=True)
+            raise HTTPException(status_code=409, detail="文件夹上传任务已结束")
+        total_size = current["uploaded_size"] + size
+        if total_size > WEEKLY_MAX_ARCHIVE_UNPACKED_SIZE:
+            target.unlink(missing_ok=True)
+            raise HTTPException(status_code=413, detail="文件夹上传超过 2GB 限制")
+        source_name = f"文件夹上传 / {display_path}"
+        current["uploaded_size"] = total_size
+        current["presentation_sources"].append((str(target), source_name))
+        current["manifest"].append({"path": source_name, "kind": "ppt", "size": size, "status": "已发现"})
+        current["updated_at"] = time.time()
+    return {"uploaded": len(current["presentation_sources"]), "size": size}
+
+
+@app.post("/api/weekly-report/folder/{job_id}/finish")
+async def weekly_report_folder_finish(job_id: str, background_tasks: BackgroundTasks):
+    """结束逐文件上传并启动周报处理。"""
+    with WEEKLY_JOBS_LOCK:
+        job = WEEKLY_JOBS.get(job_id)
+        if not job or job.get("status") != "uploading":
+            raise HTTPException(status_code=404, detail="文件夹上传任务不存在或已结束")
+        if not job["presentation_sources"]:
+            raise HTTPException(status_code=400, detail="上传内容中没有找到可处理的 PPTX 文件")
+        job["manifest"].insert(0, {"path": "文件夹上传", "kind": "directory", "size": job["uploaded_size"], "status": "已扫描"})
+        job["status"] = "queued"
+        job["progress"] = {"stage": "排队中", "percent": 10, "detail": "文件上传完成，等待审核项目周报"}
+        job["updated_at"] = time.time()
+    background_tasks.add_task(_process_weekly_job, job_id)
+    return _weekly_job_response(job)
 
 
 def _process_weekly_job(job_id: str) -> None:

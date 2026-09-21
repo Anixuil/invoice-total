@@ -197,20 +197,48 @@ function chooseFiles(files){
   if(!isArchive&&!files.some(file=>file.name.toLowerCase().endsWith('.pptx'))){showUploadError('请选择包含 PPTX 的文件夹或 ZIP 文件');return;}
   selectedFile=files;selectedPanel.hidden=false;
   const size=files.reduce((total,file)=>total+file.size,0);
-  document.getElementById('selectedName').textContent=isArchive?files[0].name:`文件夹（${files.length} 个文件）`;
+  const pptCount=files.filter(file=>file.name.toLowerCase().endsWith('.pptx')).length;
+  document.getElementById('selectedName').textContent=isArchive?files[0].name:`文件夹（${files.length} 个目录项，其中 ${pptCount} 个 PPTX）`;
   document.getElementById('selectedMeta').textContent=`${formatSize(size)} · 文件仅在本机临时处理`;
 }
 function choose(file){chooseFiles(file?[file]:[]);}
+
+function uploadFiles(url,body,onProgress){
+  return new Promise((resolve,reject)=>{
+    const request=new XMLHttpRequest();request.open('POST',url);request.responseType='text';
+    request.upload.addEventListener('progress',event=>{if(event.lengthComputable)onProgress?.(event.loaded,event.total);});
+    request.addEventListener('load',()=>{let data={};try{data=request.responseText?JSON.parse(request.responseText):{};}catch{reject(new Error('服务器返回了无法解析的响应'));return;}if(request.status>=200&&request.status<300)resolve(data);else reject(new Error(data.detail||request.statusText||'上传失败'));});
+    request.addEventListener('error',()=>reject(new Error('网络连接中断，上传未完成')));request.send(body);
+  });
+}
 
 async function upload(){
   if(!selectedFile)return;
   currentJobId='';currentResult=null;workspace.hidden=true;drop.hidden=true;selectedPanel.hidden=true;progress.hidden=false;
   const files=selectedFile;setProgress({stage:'上传文件',percent:2,detail:`正在上传 ${files.length===1?files[0].name:`${files.length} 个文件`}`});
   const body=new FormData();const isArchive=files.length===1&&files[0].name.toLowerCase().endsWith('.zip');
-  files.forEach(file=>body.append(isArchive?'file':'files',file,file.webkitRelativePath||file.name));
   try{
-    const response=await fetch('/api/weekly-report/import',{method:'POST',body});const data=await response.json();
-    if(!response.ok)throw new Error(data.detail||response.statusText);currentJobId=data.job_id;await poll(data.job_id);
+    let data;
+    if(isArchive){
+      body.append('file',files[0],files[0].name);
+      data=await uploadFiles('/api/weekly-report/import',body,(loaded,total)=>{
+        const uploadPercent=total?Math.max(2,Math.min(10,Math.round(loaded/total*10))):2;
+        setProgress({stage:'上传文件',percent:uploadPercent,detail:`正在上传 ${formatSize(loaded)} / ${formatSize(total)}`});
+      });
+    }else{
+      const pptFiles=files.filter(file=>file.name.toLowerCase().endsWith('.pptx'));
+      const start=await fetch('/api/weekly-report/folder/start',{method:'POST'}).then(async response=>{const value=await response.json();if(!response.ok)throw new Error(value.detail||response.statusText);return value;});
+      for(let index=0;index<pptFiles.length;index++){
+        const file=pptFiles[index],fileBody=new FormData();fileBody.append('file',file,file.name);
+        const relativePath=file.webkitRelativePath||file.name;
+        await uploadFiles(`/api/weekly-report/folder/${encodeURIComponent(start.job_id)}/file?relative_path=${encodeURIComponent(relativePath)}`,fileBody,(loaded,total)=>{
+          const completed=index+(total?loaded/total:0);const percent=Math.max(2,Math.min(9,Math.round(completed/pptFiles.length*9)));
+          setProgress({stage:'上传文件',percent,detail:`正在上传 ${index+1} / ${pptFiles.length}：${file.name}`});
+        });
+      }
+      data=await fetch(`/api/weekly-report/folder/${encodeURIComponent(start.job_id)}/finish`,{method:'POST'}).then(async response=>{const value=await response.json();if(!response.ok)throw new Error(value.detail||response.statusText);return value;});
+    }
+    currentJobId=data.job_id;await poll(data.job_id);
   }catch(error){showError(error.message||'周报整合失败');}
   finally{progress.hidden=true;drop.hidden=false;selectedPanel.hidden=!selectedFile;}
 }

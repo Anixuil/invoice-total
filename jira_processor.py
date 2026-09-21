@@ -55,6 +55,10 @@ DEFAULT_ROSTER = [
     "muzhengyi",
 ]
 
+# 每日汇总不再统计已移出名单的账号；周报名单保持不变。
+DAILY_EXCLUDED_USERS = {"ruishunzi", "mojunyou"}
+DAILY_ROSTER = [name for name in DEFAULT_ROSTER if name not in DAILY_EXCLUDED_USERS]
+
 WEEKLY_ROSTER = [
     ("zhoujiayu", "周佳宇"), ("zhengleyuan", "郑乐园"), ("douhuanhuan", "窦欢欢"),
     ("sunyanqiang", "孙艳强"), ("lilixin", "李礼辛"), ("linyu01", "林榆"),
@@ -413,7 +417,12 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
                 summary_source = "未分配"
                 consistency = "人员缺失"
                 summary_note = "开发人员、经办人和报告人均为空，未纳入每日汇总"
-            included = bool(developer or assignee or reporter)
+            has_person = bool(developer or assignee or reporter)
+            excluded_from_daily = summary_person in DAILY_EXCLUDED_USERS
+            included = has_person and not excluded_from_daily
+            if excluded_from_daily:
+                consistency = "不在每日名单"
+                summary_note = "该人员已从每日 Jira 汇总名单移除"
             records.append({
                 "source_row": row_number,
                 "issue_key": _text(get("issue_key")) or f"第{row_number}行",
@@ -434,10 +443,10 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
             })
 
         _notify(progress_callback, "确定人员归属", 48, f"已读取 {len(records)} 条任务")
-        roster_order = {name: index + 1 for index, name in enumerate(DEFAULT_ROSTER)}
+        roster_order = {name: index + 1 for index, name in enumerate(DAILY_ROSTER)}
         records.sort(key=lambda record: (
             0 if record["included"] else 1,
-            roster_order.get(record["summary_person"], len(DEFAULT_ROSTER) + 1),
+            roster_order.get(record["summary_person"], len(DAILY_ROSTER) + 1),
             record["source_row"],
         ))
         included_records = [record for record in records if record["included"]]
@@ -445,7 +454,7 @@ def process_daily_jira_workbook(path: str | Path, progress_callback: ProgressCal
         for record in included_records:
             grouped[record["summary_person"]].append(record)
 
-        summary_names = DEFAULT_ROSTER + sorted(name for name in grouped if name not in roster_order)
+        summary_names = DAILY_ROSTER + sorted(name for name in grouped if name not in roster_order)
         summaries = []
         for name in summary_names:
             items = grouped.get(name, [])

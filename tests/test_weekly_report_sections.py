@@ -96,3 +96,46 @@ def test_untemplated_project_ppt_is_added_to_weekly_presentation(tmp_path: Path)
         run._r.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")) == "FF0000"
         for paragraph in issue_paragraphs for run in paragraph.runs
     )
+
+
+def test_word_template_only_project_is_added_to_weekly_presentation(tmp_path: Path) -> None:
+    template = Presentation(PPT_TEMPLATE)
+    presentation = Presentation()
+    presentation.slide_width = template.slide_width
+    presentation.slide_height = template.slide_height
+    presentation.slides.add_slide(presentation.slide_layouts[6]).shapes.add_textbox(
+        Inches(1), Inches(1), Inches(4), Inches(1)
+    ).text = "项目周报"
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    for text, left, top, width, height in (
+        ("demo开发、客户交流、其他（汇报人：郑乐园）", 0.5, 0.3, 8, 0.4),
+        ("本周进度", 0.4, 1.0, 1.5, 0.4),
+        ("已完成客户交流", 1.2, 1.0, 5, 1),
+        ("下周计划", 0.4, 2.2, 1.5, 0.4),
+        ("继续跟进商机", 1.2, 2.2, 5, 1),
+        ("问题", 0.4, 3.4, 1.5, 0.4),
+        ("暂无", 1.2, 3.4, 5, 1),
+    ):
+        slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height)).text = text
+    presentation.slides.add_slide(presentation.slide_layouts[6]).shapes.add_textbox(
+        Inches(1), Inches(1), Inches(4), Inches(1)
+    ).text = "期待与您携手共赢"
+
+    source = tmp_path / "demo开发.pptx"
+    presentation.save(source)
+    result = process_weekly_report([(source, source.name)], [])
+
+    project = next(item for item in result["projects"] if item["title"] == "demo开发、客户交流、其他")
+    assert project["source_kind"] == "周例会模板项目"
+    assert project["slides"][0]["file"] == source.name
+
+    presentation_path = tmp_path / "项目周报.pptx"
+    build_weekly_presentation(result, {source.name: source}, presentation_path)
+    output = Presentation(presentation_path)
+    assert any(
+        "demo开发、客户交流、其他" in "".join(
+            shape.text for shape in output_slide.shapes if getattr(shape, "has_text_frame", False)
+        )
+        for output_slide in output.slides
+    )
