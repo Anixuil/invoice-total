@@ -206,9 +206,28 @@ def _text(
     align=fitz.TEXT_ALIGN_CENTER,
     fontname=TEXT_FONT_NAME,
     fontsize=10,
+    preserve_full_text=False,
 ):
-    """Write 10pt Song text without allowing content to escape its template cell."""
+    """Keep text within its cell, shrinking required content instead of cutting it."""
     text = str(text or "")
+    if preserve_full_text:
+        if not text:
+            return
+        # A failed insert_textbox call writes nothing, so retry the entire value.
+        # Keep required expense descriptions searchable and readable (at least 6pt).
+        current_size = fontsize
+        while current_size >= 6:
+            if page.insert_textbox(
+                rect,
+                text,
+                fontsize=current_size,
+                fontname=fontname,
+                color=color,
+                align=align,
+            ) >= 0:
+                return
+            current_size -= 0.5
+        raise ValueError("报销明细用途过长，缩小字号后仍无法完整显示，请精简用途内容")
     truncated = text
     while truncated:
         candidate = truncated if truncated == text else truncated + "…"
@@ -282,7 +301,10 @@ def render_reimbursement_pdf(
         for row, detail in enumerate(page_details):
             top, bottom = 184 + row * 30, 202 + row * 30
             expense = f"{detail.type}（{detail.purpose}）" if detail.type and detail.purpose else detail.type or detail.purpose
-            _text(page, fitz.Rect(115, top, 310, bottom), expense, align=fitz.TEXT_ALIGN_LEFT)
+            _text(
+                page, fitz.Rect(115, top, 310, bottom), expense,
+                align=fitz.TEXT_ALIGN_LEFT, preserve_full_text=True,
+            )
             _text(page, fitz.Rect(315, top, 397, bottom), f"{detail.amount:.2f}", fontname="tiro")
         _text(page, fitz.Rect(315, 304, 397, 323), f"{total:.2f}", fontname="tiro")
         for x, digit in zip((174, 203, 232, 261, 290, 319, 348, 377), amount_to_template_digits(total)):

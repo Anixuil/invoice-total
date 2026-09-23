@@ -1849,11 +1849,27 @@ def _set_word_paragraph_color(paragraph_element, color: str) -> None:
         color_element.set(qn("w:val"), color)
 
 
-def _paragraph_copy(template_paragraph, value: str, color: str | None = None):
+def _paragraph_copy(
+    template_paragraph,
+    value: str,
+    color: str | None = None,
+    *,
+    bold: bool = False,
+    first_line_chars: int | None = None,
+):
     paragraph = deepcopy(template_paragraph._p)
     _set_paragraph_xml_text(paragraph, value)
     if color:
         _set_word_paragraph_color(paragraph, color)
+    if bold:
+        for run in paragraph.xpath(".//w:r"):
+            run.get_or_add_rPr().get_or_add_b().val = True
+    if first_line_chars is not None:
+        indent = paragraph.get_or_add_pPr().get_or_add_ind()
+        for attribute in ("firstLine", "hanging", "hangingChars"):
+            indent.attrib.pop(qn(f"w:{attribute}"), None)
+        # Word 以百分之一字符记录缩进；只移动首行，不给续行增加缩进。
+        indent.set(qn("w:firstLineChars"), str(first_line_chars * 100))
     return paragraph
 
 
@@ -1930,10 +1946,10 @@ def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, te
         for key in ("current", "next", "issues"):
             label_template = label_templates.get(key) or bullet_template
             color = "FF0000" if key == "issues" else None
-            tc.append(_paragraph_copy(label_template, SECTION_DISPLAY[key], color))
+            tc.append(_paragraph_copy(label_template, SECTION_DISPLAY[key], color, bold=True))
             values = [line for line in project.get(key, "").splitlines() if line.strip()] or ["无"]
             for value in values:
-                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), color))
+                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), color, first_line_chars=2))
             tc.append(deepcopy(blank_template._p))
     _set_meeting_body_size(cell)
     _set_document_font(document)
