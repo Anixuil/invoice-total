@@ -142,32 +142,37 @@ def build_page_previews(pdf_path: Path, page_numbers: list[int] | None = None, p
 
 @app.get("/")
 async def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "app.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/jira")
 async def jira_index():
-    return FileResponse(STATIC / "jira.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
+    return FileResponse(STATIC / "app.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 @app.get("/weekly-report")
 async def weekly_report_index():
     return FileResponse(
-        STATIC / "weekly-report.html",
+        STATIC / "app.html",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
 
 
 @app.get("/reimbursement")
 async def reimbursement_index():
-    return FileResponse(STATIC / "reimbursement.html")
+    return FileResponse(STATIC / "app.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/image-to-ppt")
 async def image_to_ppt_index():
     if not IMAGE_PPT_AVAILABLE:
         raise HTTPException(status_code=404, detail="图片转 PPT 功能未部署")
-    return FileResponse(STATIC / "image-to-ppt.html")
+    return FileResponse(STATIC / "app.html", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/ui-config")
+async def ui_config():
+    return {"image_to_ppt_available": IMAGE_PPT_AVAILABLE}
 
 
 def _cleanup_image_ppt_jobs() -> None:
@@ -1353,13 +1358,21 @@ def _weekly_job_response(job: dict, include_result: bool = False) -> dict:
     return response
 
 
+def _weekly_source_kind(name: str) -> str:
+    """Office/WPS 的 ~$ 锁文件保留在清单中，但不作为周报上传或解析。"""
+    path = Path(name.replace("\\", "/"))
+    if path.name.startswith("~$"):
+        return "ignored"
+    return {".pptx": "ppt", ".docx": "docx"}.get(path.suffix.lower(), "ignored")
+
+
 def _extract_weekly_archive(
     archive_path: Path,
     archive_name: str,
     target_directory: Path,
     upload_index: int,
 ) -> tuple[list[tuple[Path, str]], list[dict]]:
-    """安全展开 ZIP 中的项目 PPTX，并保留完整目录清单。"""
+    """安全展开 ZIP 中的项目 PPTX / DOCX，并保留完整目录清单。"""
     presentation_sources = []
     manifest = []
     expanded_size = 0
@@ -1373,15 +1386,15 @@ def _extract_weekly_archive(
                 manifest.append({"path": f"{archive_name} / {member_name}", "kind": "directory", "status": "已扫描"})
                 continue
             extension = Path(member_name).suffix.lower()
-            kind = "ppt" if extension == ".pptx" else "historical" if extension == ".docx" else "ignored"
+            kind = _weekly_source_kind(member_name)
             entry = {
                 "path": f"{archive_name} / {member_name}",
                 "kind": kind,
                 "size": info.file_size,
-                "status": "待解析" if kind == "ppt" else "历史成品" if kind == "historical" else "已忽略",
+                "status": "待解析" if kind in {"ppt", "docx"} else "已忽略",
             }
             manifest.append(entry)
-            if kind != "ppt":
+            if kind not in {"ppt", "docx"}:
                 continue
             if stat.S_ISLNK(mode):
                 raise ValueError(f"压缩包包含不支持的软链接: {member_name}")
@@ -1402,14 +1415,18 @@ def _extract_weekly_archive(
 
 
 async def _collect_weekly_folder(uploads: list[UploadFile], target_directory: Path, source_name: str) -> tuple[list[tuple[Path, str]], list[dict], int]:
-    """Save browser directory uploads and return PPTX sources plus a manifest."""
+    """Save browser directory uploads and return PPTX/DOCX sources plus a manifest."""
     presentation_sources, manifest = [], []
     total_size = 0
     supported_index = 0
     for upload in uploads:
         relative_name = _safe_upload_name(upload.filename or "unnamed")
         extension = Path(relative_name).suffix.lower()
-        kind = "ppt" if extension == ".pptx" else "historical" if extension == ".docx" else "ignored"
+        kind = _weekly_source_kind(relative_name)
+        if kind == "ignored":
+            manifest.append({"path": f"{source_name} / {relative_name}", "kind": kind, "status": "已忽略"})
+            await upload.close()
+            continue
         target = target_directory / f"folder_{supported_index}{extension or '.bin'}"
         size, _ = await _save_upload(upload, target, WEEKLY_MAX_SIZE)
         total_size += size
@@ -1417,9 +1434,9 @@ async def _collect_weekly_folder(uploads: list[UploadFile], target_directory: Pa
             raise ValueError(f"File exceeds 500MB limit: {relative_name}")
         if total_size > WEEKLY_MAX_ARCHIVE_UNPACKED_SIZE:
             raise ValueError("Folder upload exceeds 2GB limit")
-        entry = {"path": f"{source_name} / {relative_name}", "kind": kind, "size": size, "status": "待解析" if kind == "ppt" else "历史成品" if kind == "historical" else "已忽略"}
+        entry = {"path": f"{source_name} / {relative_name}", "kind": kind, "size": size, "status": "待解析" if kind in {"ppt", "docx"} else "已忽略"}
         manifest.append(entry)
-        if kind == "ppt":
+        if kind in {"ppt", "docx"}:
             entry["status"] = "已发现"
             presentation_sources.append((target, f"{source_name} / {relative_name}"))
             supported_index += 1
@@ -1453,7 +1470,7 @@ async def weekly_report_folder_file(
     file: UploadFile = File(...),
     relative_path: str = Query(""),
 ):
-    """向文件夹上传会话追加一个 PPTX。"""
+    """向文件夹上传会话追加一个 PPTX 或 DOCX。"""
     with WEEKLY_JOBS_LOCK:
         job = WEEKLY_JOBS.get(job_id)
         if not job or job.get("status") != "uploading":
@@ -1461,13 +1478,14 @@ async def weekly_report_folder_file(
         directory = Path(job["directory"])
         file_index = len(job["presentation_sources"])
     display_path = _safe_upload_name(relative_path or file.filename or "unnamed.pptx")
-    if Path(display_path).suffix.lower() != ".pptx":
+    extension = Path(display_path).suffix.lower()
+    if _weekly_source_kind(display_path) == "ignored":
         await file.close()
         return {"ignored": True}
     if file_index >= 50:
         await file.close()
-        raise HTTPException(status_code=400, detail="单次最多解析 50 个 PPTX 文件")
-    target = directory / f"folder_{file_index}.pptx"
+        raise HTTPException(status_code=400, detail="单次最多解析 50 个 PPTX / DOCX 文件")
+    target = directory / f"folder_{file_index}{extension}"
     try:
         size, _ = await _save_upload(file, target, WEEKLY_MAX_SIZE)
     finally:
@@ -1484,7 +1502,7 @@ async def weekly_report_folder_file(
         source_name = f"文件夹上传 / {display_path}"
         current["uploaded_size"] = total_size
         current["presentation_sources"].append((str(target), source_name))
-        current["manifest"].append({"path": source_name, "kind": "ppt", "size": size, "status": "已发现"})
+        current["manifest"].append({"path": source_name, "kind": "docx" if extension == ".docx" else "ppt", "size": size, "status": "已发现"})
         current["updated_at"] = time.time()
     return {"uploaded": len(current["presentation_sources"]), "size": size}
 
@@ -1497,7 +1515,7 @@ async def weekly_report_folder_finish(job_id: str, background_tasks: BackgroundT
         if not job or job.get("status") != "uploading":
             raise HTTPException(status_code=404, detail="文件夹上传任务不存在或已结束")
         if not job["presentation_sources"]:
-            raise HTTPException(status_code=400, detail="上传内容中没有找到可处理的 PPTX 文件")
+            raise HTTPException(status_code=400, detail="上传内容中没有找到可处理的 PPTX / DOCX 文件")
         job["manifest"].insert(0, {"path": "文件夹上传", "kind": "directory", "size": job["uploaded_size"], "status": "已扫描"})
         job["status"] = "queued"
         job["progress"] = {"stage": "排队中", "percent": 10, "detail": "文件上传完成，等待审核项目周报"}
@@ -1605,10 +1623,10 @@ async def weekly_report_import(background_tasks: BackgroundTasks, file: UploadFi
             await upload.close()
     if not presentation_sources:
         shutil.rmtree(job_directory, ignore_errors=True)
-        raise HTTPException(status_code=400, detail="上传内容中没有找到可处理的 PPTX 文件")
+        raise HTTPException(status_code=400, detail="上传内容中没有找到可处理的 PPTX / DOCX 文件")
     if len(presentation_sources) > 50:
         shutil.rmtree(job_directory, ignore_errors=True)
-        raise HTTPException(status_code=400, detail="单次最多解析 50 个 PPTX 文件")
+        raise HTTPException(status_code=400, detail="单次最多解析 50 个 PPTX / DOCX 文件")
 
     job = {
         "job_id": job_id,

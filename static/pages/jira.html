@@ -1,0 +1,65 @@
+<div id="route-content" class="route-content">
+
+  <nav class="mode-switch" aria-label="Jira 处理类型">
+    <a id="weeklyModeLink" href="/jira">周报处理</a>
+    <a id="dailyModeLink" href="/jira?mode=daily">每日处理</a>
+  </nav>
+  <header class="hero paper-hero"><div class="brand-mark" aria-hidden="true"><svg class="ui-icon" focusable="false"><use href="/static/icons.svg#grid"/></svg></div>
+
+    <div><p id="heroEyebrow" class="eyebrow">本地 Jira 数据工具</p><h1 id="heroTitle">周报 Jira 处理</h1></div>
+    <p id="heroCopy" class="hero-copy">上传 Jira 导出的 Excel，依次按开发人员、经办人、报告人确定任务归属并完成同人合并。</p>
+
+  <div class="album-index" aria-hidden="true"><strong>02</strong><span>JIRA / LOCAL</span></div></header>
+
+
+  <section class="panel upload-panel" aria-label="上传 Jira Excel">
+    <div id="weeklyNewTaskToolbar" class="weekly-new-task-toolbar" hidden>
+      <div class="weekly-stat-grid">
+        <div class="weekly-stat-row"><button id="newTaskButton" class="weekly-stat-button is-active" type="button">本周新增任务数</button><button id="newTaskExcelButton" class="weekly-action-button" type="button" >上传文件</button><button id="newTaskPasteButton" class="weekly-action-button" type="button" >粘贴截图</button><button id="newTaskGenerateButton" class="weekly-action-button is-generate" type="button" >生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="completed-tasks" type="button">本周完成任务数</button><button class="weekly-action-button" data-stat-upload="completed-tasks" type="button" >上传文件</button><button class="weekly-action-button" data-stat-paste="completed-tasks" type="button" >粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="completed-tasks" type="button" >生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="new-defects" type="button">本周新增缺陷数</button><button class="weekly-action-button" data-stat-upload="new-defects" type="button" >粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="new-defects" type="button" >生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="fixed-defects" type="button">本周已修复缺陷数</button><button class="weekly-action-button" data-stat-upload="fixed-defects" type="button" >粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="fixed-defects" type="button" >生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="delayed-defects" type="button">本周延期缺陷数</button><button class="weekly-action-button" data-stat-upload="delayed-defects" type="button" >粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="delayed-defects" type="button" >生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="pending-defects" type="button">总挂起缺陷数</button><button class="weekly-action-button" data-stat-upload="pending-defects" type="button" >粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="pending-defects" type="button" >生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="delayed-tasks" type="button">本周延期任务数</button><button class="weekly-action-button" data-stat-upload="delayed-tasks" type="button" >粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="delayed-tasks" type="button" >生成文件</button></div>
+        <div class="weekly-stat-row"><button class="weekly-stat-button" data-stat="pending-tasks" type="button">总挂起任务数</button><button class="weekly-action-button" data-stat-upload="pending-tasks" type="button" >粘贴截图</button><button class="weekly-action-button is-generate" data-stat-generate="pending-tasks" type="button" >生成文件</button></div>
+      </div>
+      <div class="weekly-summary-action"><span>已生成的统计可整合为一份周报总表</span><div class="weekly-summary-controls"><button id="weeklySummaryButton" class="weekly-action-button is-generate" type="button">整合生成</button><button id="weeklySummaryClearButton" type="button" aria-label="清除整合结果" title="清除整合结果" hidden>×</button></div></div>
+      <div id="newTaskStatus" class="upload-copy">请上传 Jira Excel，并粘贴或选择统计截图</div>
+    </div>
+    <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
+      <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
+      <div class="upload-copy"><strong id="uploadTitle">拖入 Jira 导出的 .xlsx 文件</strong><span id="uploadHint">任务优先归属开发人员，其次经办人、报告人；发生回退时会保留备注。</span></div>
+      <button id="selectButton" class="primary-button" type="button" >选择 Excel</button>
+    </div>
+    <div id="weeklyUpload" class="weekly-upload" hidden>
+      <button id="zipButton" class="primary-button" type="button" >上传周报 ZIP</button>
+      <button id="directoryButton" class="ghost-button" type="button" data-icon="folder">选择数据目录</button>
+      <span id="weeklyFiles" class="upload-copy">尚未选择周报文件</span>
+    </div>
+    <div id="previewDialog" class="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="previewTitle" hidden>
+      <div class="preview-dialog__content"><div class="preview-dialog__header"><h2 id="previewTitle">上传内容预览</h2><button id="previewCloseButton" class="ghost-button" type="button" data-icon="close">关闭</button></div><div id="previewBody"></div></div>
+    </div>
+    <div id="progress" class="progress-panel" hidden aria-live="polite"><div class="progress-head"><div class="spinner" aria-hidden="true"></div><div><strong id="progressTitle">正在处理 Jira 数据</strong><span id="progressText">等待开始</span></div></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div>
+    <div class="upload-meta"><span><i class="meta-dot"></i>支持 Jira .xlsx 导出文件</span><span><i class="meta-dot"></i>单文件最大 20MB</span><span><i class="meta-dot"></i>处理完成后可下载汇总 Excel</span></div>
+    <input id="file" type="file" accept=".xlsx,.XLSX" hidden>
+    <input id="zipFile" type="file" accept=".zip,.ZIP" hidden>
+    <input id="directoryFiles" type="file" webkitdirectory directory multiple accept=".xlsx,.XLSX" hidden>
+    <input id="newTaskExcel" type="file" accept=".xlsx,.XLSX" hidden>
+    <input id="newTaskScreenshot" type="file" accept=".png,.PNG,.jpg,.JPG,.jpeg,.JPEG,.webp,.WEBP" hidden>
+    <div id="clipboardPasteTarget" class="clipboard-paste-target" contenteditable="true" tabindex="-1" aria-label="截图粘贴输入区"></div>
+  </section>
+
+<section id="workspace" class="workspace" hidden>
+    <div class="panel summary-panel">
+      <div><div class="summary-kicker">处理文件</div><div id="sourceName" class="summary-source">—</div><div id="summaryNotice" class="notice">—</div></div>
+      <div><div class="summary-stats"><div class="stat"><span>任务总数</span><strong id="totalStat">0</strong></div><div class="stat"><span>纳入汇总</span><strong id="includedStat">0</strong></div><div class="stat is-warn"><span id="pendingLabel">待补开发人员</span><strong id="pendingStat">0</strong></div><div class="stat"><span id="mismatchLabel">人员不一致</span><strong id="mismatchStat">0</strong></div></div><div class="actions"><button id="clearButton" class="ghost-button" type="button" data-icon="trash">清空结果</button><button id="downloadButton" class="primary-button" type="button" disabled data-icon="download">下载处理结果</button></div></div>
+    </div>
+    <div class="results-head"><div><h2>处理结果</h2><p id="resultsCopy">按周报规则生成的人员汇总、完整明细和异常数据。</p></div></div>
+    <div class="tabs" role="tablist"><button class="tab is-active" data-view="summaryView" type="button" data-icon="list">人员汇总</button><button class="tab" data-view="detailView" type="button" data-icon="list">任务明细</button><button id="anomalyTab" class="tab" data-view="anomalyView" type="button" data-icon="alert">异常清单</button><button class="tab" data-view="mappingView" type="button" data-icon="list">字段映射</button></div>
+    <section id="summaryView" class="panel view-panel"></section>
+    <section id="detailView" class="panel view-panel" hidden></section>
+    <section id="anomalyView" class="panel view-panel" hidden></section>
+    <section id="mappingView" class="panel view-panel" hidden></section>
+</section>
+  </div>

@@ -1,0 +1,61 @@
+@layer page-layout {
+:where(.page-root[data-page="reimbursement"]) * {box-sizing:border-box;}
+:where(.page-root[data-page="reimbursement"]) .hero {display:grid;grid-template-columns:52px 1fr;gap:14px;align-items:center;margin-bottom:22px;}
+:where(.page-root[data-page="reimbursement"]) .mark {width:52px;height:52px;display:grid;place-items:center;border:1px solid var(--line);background:var(--soft);color:var(--accent);font-size:25px;border-radius:7px;}
+:where(.page-root[data-page="reimbursement"]) h1 {margin:0;font-size:27px;letter-spacing:0;}
+:where(.page-root[data-page="reimbursement"]) .hero p {margin:5px 0 0;color:var(--muted);font-size:14px;}
+:where(.page-root[data-page="reimbursement"]) .workspace {display:grid;grid-template-columns:minmax(0,1fr) 290px;border:1px solid var(--line);background:var(--paper);}
+:where(.page-root[data-page="reimbursement"]) .upload {min-height:332px;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:34px;border-right:1px solid var(--line);text-align:center;}
+:where(.page-root[data-page="reimbursement"]) .drop {width:100%;max-width:520px;padding:42px 24px;border:1.5px dashed var(--line);background:var(--surface-soft);cursor:pointer;}
+:where(.page-root[data-page="reimbursement"]) .drop:hover,
+:where(.page-root[data-page="reimbursement"]) .drop.drag {border-color:var(--accent);background:var(--surface-soft);}
+:where(.page-root[data-page="reimbursement"]) .drop strong {display:block;font-size:16px;}
+:where(.page-root[data-page="reimbursement"]) .drop span {display:block;margin-top:8px;color:var(--muted);font-size:13px;}
+:where(.page-root[data-page="reimbursement"]) input {display:none;}
+:where(.page-root[data-page="reimbursement"]) button {font:inherit;cursor:pointer;}
+:where(.page-root[data-page="reimbursement"]) .primary {margin-top:17px;padding:10px 18px;border:0;border-radius:5px;background:var(--accent);color:var(--text);font-size:14px;font-weight:700;}
+:where(.page-root[data-page="reimbursement"]) .primary:disabled {opacity:.52;cursor:wait;}
+:where(.page-root[data-page="reimbursement"]) .details {padding:25px;}
+:where(.page-root[data-page="reimbursement"]) .details h2 {margin:0 0 15px;font-size:15px;}
+:where(.page-root[data-page="reimbursement"]) .details dl {margin:0;}
+:where(.page-root[data-page="reimbursement"]) .details div {padding:12px 0;border-top:1px solid var(--line);}
+:where(.page-root[data-page="reimbursement"]) .details dt {color:var(--muted);font-size:12px;}
+:where(.page-root[data-page="reimbursement"]) .details dd {margin:5px 0 0;font-size:13px;line-height:1.55;}
+:where(.page-root[data-page="reimbursement"]) .status {min-height:22px;margin:16px 0 0;color:var(--muted);font-size:13px;}
+:where(.page-root[data-page="reimbursement"]) .status.error {color:var(--danger);}
+:where(.page-root[data-page="reimbursement"]) .name {margin-top:13px;font-size:13px;word-break:break-all;}
+:where(.page-root[data-page="reimbursement"]) .result {margin-top:18px;padding:16px 18px;border-left:3px solid var(--accent);background:var(--paper);font-size:14px;}
+:where(.page-root[data-page="reimbursement"]) .result[hidden] {display:none;}
+@media(max-width:720px) {
+:where(.page-root[data-page="reimbursement"]) .workspace {grid-template-columns:1fr;}
+:where(.page-root[data-page="reimbursement"]) .upload {min-height:285px;border-right:0;border-bottom:1px solid var(--line);}
+:where(.page-root[data-page="reimbursement"]) h1 {font-size:23px;}
+}
+:where(.page-root[data-page="reimbursement"]) .primary {position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:126px;transition:transform 160ms var(--ease-out),opacity 160ms var(--ease-out);}
+:where(.page-root[data-page="reimbursement"]) .primary:not(:disabled):active {transform:scale(.97);}
+:where(.page-root[data-page="reimbursement"]) .button-spinner {position:absolute;left:15px;width:14px;height:14px;opacity:0;transition:opacity 160ms var(--ease-out);}
+:where(.page-root[data-page="reimbursement"]) .button-spinner::after {content:"";display:block;width:100%;height:100%;border:2px solid var(--line);border-top-color:var(--line);border-radius:50%;animation:reimbursement-reimbursement-spin .8s linear infinite;animation-play-state:paused;}
+:where(.page-root[data-page="reimbursement"]) .primary.is-loading {opacity:1;}
+:where(.page-root[data-page="reimbursement"]) .primary.is-loading .button-spinner {opacity:1;}
+:where(.page-root[data-page="reimbursement"]) .primary.is-loading .button-spinner::after {animation-play-state:running;}
+@keyframes reimbursement-reimbursement-spin {to{transform:rotate(360deg);}}
+:where(.page-root[data-page="reimbursement"]) .job-progress {width:100%;max-width:520px;margin-top:18px;text-align:left;}
+:where(.page-root[data-page="reimbursement"]) .job-progress[hidden] {display:none;}
+:where(.page-root[data-page="reimbursement"]) .progress-meta {display:flex;align-items:center;justify-content:space-between;gap:16px;color:var(--ink);font-size:13px;}
+:where(.page-root[data-page="reimbursement"]) .progress-meta strong {font-variant-numeric:tabular-nums;font-size:12px;}
+:where(.page-root[data-page="reimbursement"]) .progress-track {height:5px;margin-top:9px;overflow:hidden;background:var(--surface-soft);}
+:where(.page-root[data-page="reimbursement"]) .progress-value {display:block;width:100%;height:100%;background:var(--accent);transform:scaleX(0);transform-origin:left center;transition:transform 200ms linear;}
+:where(.page-root[data-page="reimbursement"]) .progress-detail {min-height:18px;margin-top:8px;color:var(--muted);font-size:12px;line-height:1.5;}
+:where(.page-root[data-page="reimbursement"]) .job-progress.is-error .progress-meta,
+:where(.page-root[data-page="reimbursement"]) .job-progress.is-error .progress-detail {color:var(--danger);}
+:where(.page-root[data-page="reimbursement"]) .job-progress.is-error .progress-value {background:var(--danger);}
+@media(prefers-reduced-motion:reduce) {
+:where(.page-root[data-page="reimbursement"]) .primary,
+:where(.page-root[data-page="reimbursement"]) .button-spinner {transition-duration:0ms;}
+:where(.page-root[data-page="reimbursement"]) .button-spinner::after {animation-duration:1.6s;}
+:where(.page-root[data-page="reimbursement"]) .progress-value {transition:none;}
+}
+
+
+
+}

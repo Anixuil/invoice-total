@@ -1,4 +1,4 @@
-/* 发票核验与 Jira 页面共用的跨页面转场，仅动画合成层属性。 */
+/* 五个业务模块共用的转场与交互反馈，仅动画合成层属性。 */
 html,
 body {
   min-height: 100%;
@@ -7,6 +7,11 @@ body {
 html {
   background: #e8e4dc;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+@supports not (scrollbar-gutter: stable) {
+  html { overflow-y: scroll; }
 }
 
 @supports not selector(::-webkit-scrollbar) {
@@ -17,8 +22,8 @@ html {
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
@@ -44,7 +49,7 @@ html {
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #d34a35;
+  background: #cf432d;
   background-clip: content-box;
 }
 
@@ -52,100 +57,151 @@ body {
   overflow-x: hidden;
 }
 
-main.shell {
-  min-height: 100vh;
-}
-
-main.shell > .top-nav {
+.app-navigation > .top-nav {
   flex: 0 0 auto;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-main.shell > .top-nav a {
+.app-navigation > .top-nav a {
   flex: 0 0 auto;
   white-space: nowrap;
-  transition: color .18s ease, background-color .18s ease, transform .14s cubic-bezier(.23, 1, .32, 1);
 }
 
-main.shell > .top-nav a:active {
-  transform: translateY(1px) scale(.985);
-}
-
-main.shell > .top-nav a:focus-visible,
+.app-navigation > .top-nav a:focus-visible,
 main.shell > .mode-switch a:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
 
-.route-content {
-  min-width: 0;
+/* Shared motion tokens; content is visible even when scripts fail. */
+:root {
+  --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-press: 120ms;
+  --motion-select: 160ms;
+  --motion-enter: 180ms;
+  --motion-dialog: 220ms;
 }
 
-.route-content.route-shell {
-  opacity: 1;
-  transform: translate3d(0, 0, 0);
-  transition: opacity .34s cubic-bezier(.22, .61, .36, 1), transform .34s cubic-bezier(.22, .61, .36, 1);
-  will-change: opacity, transform;
-}
+.route-content { min-width: 0; }
+.route-content.motion-route-leaving { pointer-events: none; }
+body.page-transition { opacity: 1; transform: none; }
 
-.route-content.route-shell > .viewer:not(.is-open) {
-  display: none;
+body :is(button, .preview-open, .top-nav a, .mode-switch a) {
+  transition: transform var(--motion-press) var(--motion-ease-out),
+    color var(--motion-select) ease, background-color var(--motion-select) ease,
+    border-color var(--motion-select) ease;
 }
-
-.route-content.route-shell.route-entering {
-  opacity: 0;
-  transform: translate3d(0, 14px, 0) scale(.995);
+body :is(button, .preview-open, .top-nav a, .mode-switch a):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(.98);
 }
-
-.route-content.route-shell.route-ready {
-  opacity: 1;
-  transform: translate3d(0, 0, 0) scale(1);
+body :is(button, a):is(:disabled, [aria-disabled="true"]) { transform: none; }
+/* Navigation changes selection without nudging the label on pointer release. */
+body :is(.top-nav a, .mode-switch a, .tab):active:not(:disabled):not([aria-disabled="true"]) { transform: none; }
+body :is(button, a, summary, .drop-zone):focus-visible {
+  outline: 2px solid var(--primary, #cf432d);
+  outline-offset: 3px;
 }
-
-.route-content.route-shell.route-leaving {
-  opacity: 0;
-  transform: translate3d(-18px, 0, 0) scale(.995);
+body :is(.top-nav a, .tab) { position: relative; }
+body :is(.top-nav a, .tab)::after {
+  content: "";
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  bottom: 2px;
+  height: 2px;
+  background: var(--primary, #cf432d);
   pointer-events: none;
-}
-
-body.page-transition {
   opacity: 0;
-  transform: translate3d(0, 12px, 0);
-  transition: opacity .34s cubic-bezier(.22, .61, .36, 1), transform .34s cubic-bezier(.22, .61, .36, 1);
-  will-change: opacity, transform;
+  transform: scaleX(.3);
+  transform-origin: left center;
+  transition: opacity var(--motion-select) var(--motion-ease-out),
+    transform var(--motion-select) var(--motion-ease-out);
 }
-
-body.page-transition.page-ready {
+body :is(.top-nav a, .tab).is-active::after {
   opacity: 1;
-  transform: translate3d(0, 0, 0);
+  transform: scaleX(1);
 }
-
-body.page-transition.page-leaving {
-  opacity: 0;
-  transform: translate3d(-18px, 0, 0) scale(.995);
+body .drop-zone { position: relative; }
+body .drop-zone::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--primary, #cf432d);
   pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--motion-select) var(--motion-ease-out);
+}
+body .drop-zone.is-dragging::after { opacity: .45; }
+body .drop-zone.is-dragging { border-color: var(--primary, #cf432d); }
+body :is(.source-arrow, .detail-arrow) {
+  transition: transform var(--motion-select) var(--motion-ease-out);
 }
 
+/* Panels are switched synchronously; WAAPI only decorates the new panel. */
+body .view-panel { opacity: 1; transform: none; visibility: visible; transition: none; }
+body .view-panel[hidden] { display: none; }
+body .view-panel.is-active-view { will-change: auto; }
+
+body .viewer {
+  pointer-events: none;
+  transition: opacity var(--motion-select) var(--motion-ease-out), visibility 0s linear var(--motion-select);
+}
+body .viewer.is-open {
+  pointer-events: auto;
+  transition: opacity var(--motion-dialog) var(--motion-ease-out), visibility 0s;
+}
+body .viewer .viewer-dialog {
+  transform: scale(.97);
+  transition: transform var(--motion-select) var(--motion-ease-out);
+}
+body .viewer.is-open .viewer-dialog {
+  transform: none;
+  transition-duration: var(--motion-dialog);
+}
+body .preview-dialog {
+  opacity: 1;
+  transition: opacity var(--motion-select) var(--motion-ease-out);
+}
+body .preview-dialog__content {
+  transform: none;
+  transition: transform var(--motion-select) var(--motion-ease-out);
+}
+body .preview-dialog.motion-closing { opacity: 0; pointer-events: none; }
+body .preview-dialog.motion-closing .preview-dialog__content { transform: scale(.97); }
+
+@media (hover: hover) and (pointer: fine) {
+  body :is(button, .preview-open):hover:not(:disabled):not([aria-disabled="true"]) {
+    border-color: var(--primary, #cf432d);
+  }
+}
+body.motion-keyboard :is(button, a):active { transform: none; }
+body.motion-keyboard :is(.tab, .top-nav a)::after { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  main.shell > .top-nav a {
-    transition: none;
+  body :is(button, a, .viewer, .viewer-dialog, .preview-dialog, .preview-dialog__content,
+    .source-arrow, .detail-arrow, .view-panel), body .mode-switch::before {
+    transition: none !important;
   }
-  main.shell > .top-nav a:active {
-    transform: none;
-  }
-  body.page-transition,
-  body.page-transition.page-ready,
-  body.page-transition.page-leaving {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-  .route-content.route-shell,
-  .route-content.route-shell.route-entering,
-  .route-content.route-shell.route-leaving {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
+  body :is(button, a):active { transform: none !important; }
+  body :is(.viewer .viewer-dialog, .preview-dialog__content) { transform: none; }
+  body :is(.top-nav a, .tab, .drop-zone)::after { transition: none; }
+  body .spinner { animation: none; }
+  html { scroll-behavior: auto; }
+}
+
+/* Paper theme feedback: restrained color changes, no decorative sweep. */
+.holo-theme .top-nav a::after { content: none; }
+.holo-theme .top-nav a.is-active::after { transform: scaleY(1); }
+.holo-theme .page-root .drop::after { content: ""; position: absolute; inset: 5px; border: 1px solid var(--primary); pointer-events: none; opacity: 0; transition: opacity var(--motion-select) var(--motion-ease-out); }
+.holo-theme .page-root .drop.drag::after { opacity: .45; }
+.holo-theme .page-root .viewer .viewer-dialog { transform: scale(.97); }
+.holo-theme .page-root .viewer.is-open .viewer-dialog { transform: none; }
+.holo-theme .page-root :is(.primary, .primary-button, .select-button, .folder-button, .ghost-button):active:not(:disabled) { transform: scale(.98); }
+.holo-theme .page-root .view-panel { opacity: 1; transform: none; visibility: visible; }
+.holo-theme.motion-keyboard :is(button, a, .progress-bar, .progress-value) { transition: none; }
+.holo-theme.motion-keyboard .page-root :is(button, a):active { transform: none; }
+.holo-theme[data-background="true"] *, .holo-theme[data-background="true"] *::before, .holo-theme[data-background="true"] *::after { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) {
+  .holo-theme *, .holo-theme *::before, .holo-theme *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .holo-theme .page-root :is(button, a):active, .holo-theme .page-root .viewer .viewer-dialog { transform: none; }
 }

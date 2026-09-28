@@ -1,0 +1,35 @@
+<div id="route-content" class="route-content">
+    <header class="hero paper-hero"><div class="brand-mark" aria-hidden="true"><svg class="ui-icon" focusable="false"><use href="/static/icons.svg#report"/></svg></div>
+
+      <div><p class="eyebrow">本地部门周报工具</p><h1>周报整合</h1></div>
+      <p class="hero-copy">上传部门一周全部项目周报 ZIP，审核每个项目页并生成本周总项目周报、部门周例会和审核报告。</p>
+
+    <div class="album-index" aria-hidden="true"><strong>03</strong><span>WEEKLY / LOCAL</span></div></header>
+
+  <section class="panel upload-panel" aria-label="上传部门项目周报压缩包">
+      <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file">
+        <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
+        <div class="upload-copy"><strong>拖入部门项目周报 ZIP 或文件夹</strong><span>系统递归读取 PPTX 和 DOCX，将 Word 周报内容填入对应项目 PPT，保留目录，按内置项目周报与周例会模板审核、排序和整合。单个 ZIP 或文件夹总量最大 2GB。</span></div>
+        <div class="selected-actions"><button id="zipButton" class="primary-button" type="button">选择 ZIP</button><button id="folderButton" class="ghost-button" type="button">选择文件夹</button></div>
+      </div>
+      <div id="selectedFile" class="selected-file" hidden><div><div id="selectedName" class="selected-name"></div><span id="selectedMeta" class="selected-meta"></span></div><div class="selected-actions"><button id="removeButton" class="ghost-button" type="button" data-icon="trash">移除</button><button id="startButton" class="primary-button" type="button" data-icon="play">开始整合</button></div></div>
+      <div id="progress" class="progress-panel" hidden aria-live="polite">
+        <div class="progress-head"><div class="spinner" aria-hidden="true"></div><div><strong id="progressTitle">正在处理周报</strong><span id="progressText">等待开始</span></div><div id="progressValue" class="progress-value">0%</div></div>
+        <div class="progress-track" role="progressbar" aria-label="周报整合进度" aria-valuemin="0" aria-valuemax="100"><div id="progressBar" class="progress-bar"></div></div>
+        <div class="progress-steps"><span data-step="1" class="progress-step">扫描目录</span><span data-step="2" class="progress-step">审核周报</span><span data-step="3" class="progress-step">整合总周报</span><span data-step="4" class="progress-step">生成周例会</span></div>
+      </div>
+      <p id="uploadError" class="upload-error" role="alert" hidden></p>
+      <input id="file" type="file" accept=".zip,.ZIP" hidden>
+      <input id="folder" type="file" webkitdirectory directory multiple hidden>
+    </section>
+
+<section id="workspace" class="workspace" hidden>
+      <div class="panel summary-panel">
+        <div><div class="summary-kicker">来源压缩包</div><div id="sourceName" class="summary-source">—</div><div id="outputName" class="output-name">—</div><div id="summaryNotice" class="notice">—</div></div>
+        <div><div class="summary-stats"><div class="stat"><span>模板项目</span><strong id="projectStat">0</strong></div><div class="stat"><span>已对应</span><strong id="matchedStat">0</strong></div><div class="stat is-error"><span>错误</span><strong id="errorStat">0</strong></div><div class="stat is-warn"><span>待确认</span><strong id="warningStat">0</strong></div></div><div class="actions"><button id="clearButton" class="ghost-button" type="button" data-icon="trash">清空结果</button><button id="downloadPptButton" class="primary-button" type="button" disabled data-icon="download">下载总周报 PPTX</button><button id="downloadDocxButton" class="primary-button" type="button" disabled data-icon="download">下载周例会 DOCX</button><button id="downloadXlsxButton" class="primary-button" type="button" disabled data-icon="download">下载审核报告 XLSX</button><button id="downloadZipButton" class="ghost-button" type="button" disabled data-icon="download">下载三件套 ZIP</button></div></div>
+      </div>
+      <div class="results-head"><h2>整合与审核结果</h2><p>所有问题都标明源文件、页码、对象位置和处理建议。</p></div>
+      <div class="tabs" role="tablist"><button class="tab is-active" data-view="assemblyView" type="button" data-icon="list">合并清单</button><button class="tab" data-view="auditView" type="button" data-icon="alert">审核结果</button><button class="tab" data-view="qaView" type="button" data-icon="check">生成质量</button><button class="tab" data-view="meetingView" type="button" data-icon="list">周例会内容</button><button class="tab" data-view="sourceView" type="button">文件目录</button></div>
+      <section id="assemblyView" class="panel view-panel"></section><section id="auditView" class="panel view-panel" hidden></section><section id="qaView" class="panel view-panel" hidden></section><section id="meetingView" class="panel view-panel" hidden></section><section id="sourceView" class="panel view-panel" hidden></section>
+    </section>
+  </div>

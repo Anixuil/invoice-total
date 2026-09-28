@@ -1,0 +1,116 @@
+<div id="route-content" class="route-content">
+  <header class="hero paper-hero">
+    <div class="brand-mark" aria-hidden="true"><svg class="ui-icon" focusable="false"><use href="/static/icons.svg#receipt"/></svg></div>
+    <div>
+      <p class="eyebrow">本地发票文件工具</p>
+      <h1>发票金额核算</h1>
+    </div>
+    <p class="hero-copy">批量读取 PDF 或 ZIP 发票包，汇总金额并标记需要查看的图片页。文件仅在本机临时处理。</p>
+    <div class="album-index" aria-hidden="true"><strong>01</strong><span>INVOICE / LOCAL</span></div>
+  </header>
+
+  <section class="upload-panel" aria-label="上传发票">
+    <div id="drop" class="drop-zone" role="button" tabindex="0" aria-controls="file folder">
+      <div class="upload-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/>
+          <path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/>
+        </svg>
+      </div>
+      <div class="upload-copy">
+        <strong>拖入 PDF、ZIP 或直接选择目录</strong>
+        <span>选择目录时会递归扫描全部子目录，仅上传其中的 PDF 发票；图片型发票会自动识别二维码金额。</span>
+      </div>
+      <div class="select-actions">
+        <button class="folder-button" type="button">选择文件夹</button>
+        <button class="select-button" type="button">选择文件</button>
+      </div>
+    </div>
+    <div id="progress" class="progress-panel" hidden aria-live="polite">
+      <div class="progress-head">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>
+          <strong id="progressTitle">正在读取发票</strong>
+          <span id="progressText">正在建立文本与图片核算路径…</span>
+        </div>
+      </div>
+      <div class="progress-track"><div class="progress-bar"></div></div>
+    </div>
+    <div class="upload-meta">
+      <span class="meta-chip"><i class="meta-dot"></i>单文件最大 20MB</span>
+      <span class="meta-chip"><i class="meta-dot"></i>单次最多 50 个 PDF</span>
+      <span class="meta-chip"><i class="meta-dot"></i>临时文件自动删除</span>
+    </div>
+    <input type="file" id="file" multiple accept=".pdf,.PDF,.zip,.ZIP" hidden>
+    <input type="file" id="folder" webkitdirectory directory multiple accept=".pdf,.PDF,application/pdf" hidden>
+  </section>
+
+<section id="workspace" class="workspace" hidden>
+    <div class="summary-panel">
+      <div>
+        <div class="summary-kicker">全部发票总金额</div>
+        <h2 class="grand-amount" id="grandAmount">¥0.00</h2>
+        <div class="summary-status"><i class="status-dot"></i><span id="summaryStatus">金额核算完成</span><span id="summaryConfidence" class="summary-confidence">总体置信度待判断</span></div>
+      </div>
+      <div class="summary-side">
+        <div class="summary-stats">
+          <div class="summary-stat"><span>文件</span><strong id="fileStat">0</strong></div>
+          <div class="summary-stat"><span>发票</span><strong id="invoiceStat">0</strong></div>
+          <div class="summary-stat"><span>图片识别</span><strong id="imageStat">0</strong></div>
+          <div class="summary-stat"><span>需关注文件</span><strong id="attentionStat">0</strong></div>
+        </div>
+        <div class="summary-actions">
+          <button class="ghost-button" id="clearResults" type="button" data-icon="trash">清空结果</button>
+          <button class="ghost-button" id="addFiles" type="button" data-icon="upload">核算其他文件</button>
+        </div>
+      </div>
+      <div class="uppercase-total" aria-label="价税合计大写金额">
+        <span class="uppercase-label">价税合计（大写）</span>
+        <strong class="uppercase-amount" id="uppercaseAmount">人民币零元整</strong>
+        <button class="ghost-button copy-button" id="copyUppercase" type="button" aria-describedby="copyStatus">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="1"/><path d="M15 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4"/>
+          </svg>
+          <span>复制大写金额</span>
+        </button>
+        <span id="copyStatus" class="sr-only" aria-live="polite"></span>
+      </div>
+    </div>
+
+    <div id="sourceTree" class="source-tree" hidden></div>
+
+    <div id="previewProgress" class="preview-progress" hidden aria-live="polite">
+      <div class="preview-progress-head">
+        <div>
+          <strong id="previewProgressTitle">正在准备票面核对</strong>
+          <span id="previewProgressText">金额已优先完成，正在异步生成票面预览</span>
+        </div>
+        <span id="previewProgressCount" class="preview-progress-count">0/0</span>
+      </div>
+      <div class="preview-progress-track"><div id="previewProgressBar" class="preview-progress-bar"></div></div>
+      <div class="preview-subprogress">
+        <span id="previewSubprogressText">等待开始</span>
+        <div class="preview-subprogress-track"><div id="previewSubprogressBar" class="preview-subprogress-bar"></div></div>
+      </div>
+    </div>
+
+    <div class="results-head">
+      <div><h2>核算结果</h2><p>重点信息先展示，完整提取明细可按需展开。</p></div>
+      <span class="results-count" id="resultsCount"></span>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <div id="viewer" class="viewer" inert aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="viewerTitle">
+  <div class="viewer-dialog">
+    <div class="viewer-head">
+      <div class="viewer-title" id="viewerTitle">发票票面预览</div>
+      <div class="viewer-actions">
+        <a id="viewerOpen" class="icon-button" href="#" target="_blank" rel="noopener" title="在新页面打开" aria-label="在新页面打开">↗</a>
+        <button id="viewerClose" class="icon-button" type="button" title="关闭" aria-label="关闭预览">×</button>
+      </div>
+    </div>
+    <div class="viewer-canvas"><img id="viewerImage" alt="发票票面预览"></div>
+  </div>
+</div>
+  </div>

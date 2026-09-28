@@ -1,0 +1,92 @@
+/* Layout values migrated from enna.anixuil.com; business modules remain local. */
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .hero { display:grid;grid-template-columns:52px 1fr;gap:14px;align-items:center;margin-bottom:22px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .mark { width:52px;height:52px;display:grid;place-items:center;border:1px solid var(--line);background:var(--soft);color:var(--accent);font-size:25px;border-radius:7px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content h1 { margin:0;font-size:27px;letter-spacing:0 }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .hero p { margin:5px 0 0;color:var(--muted);font-size:14px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .workspace { display:grid;grid-template-columns:minmax(0,1fr) 290px;border:1px solid var(--line);background:var(--paper) }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .upload { min-height:332px;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:34px;border-right:1px solid var(--line);text-align:center }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .drop { width:100%;max-width:520px;padding:42px 24px;border:1.5px dashed #9b978f;background:#fffdf8;cursor:pointer }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .drop:hover, body.holo-theme .page-root[data-page="reimbursement"] .route-content .drop.drag { border-color:var(--accent);background:#fffaf3 }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .drop strong { display:block;font-size:16px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .drop span { display:block;margin-top:8px;color:var(--muted);font-size:13px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content input { display:none }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content button { font:inherit;cursor:pointer }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .primary { margin-top:17px;padding:10px 18px;border:0;border-radius:5px;background:var(--accent);color:#fff;font-size:14px;font-weight:700 }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .primary:disabled { opacity:.52;cursor:wait }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .details { padding:25px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .details h2 { margin:0 0 15px;font-size:15px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .details dl { margin:0 }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .details div { padding:12px 0;border-top:1px solid var(--line) }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .details dt { color:var(--muted);font-size:12px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .details dd { margin:5px 0 0;font-size:13px;line-height:1.55 }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .status { min-height:22px;margin:16px 0 0;color:var(--muted);font-size:13px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .status.error { color:var(--danger) }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .name { margin-top:13px;font-size:13px;word-break:break-all }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .result { margin-top:18px;padding:16px 18px;border-left:3px solid var(--accent);background:var(--paper);font-size:14px }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .result[hidden] { display:none }
+body.holo-theme { background-image: linear-gradient(rgb(24 24 22 / 3.5%) 1px, transparent 1px), linear-gradient(90deg, rgb(24 24 22 / 2.5%) 1px, transparent 1px); }
+body.holo-theme::before { width: 7px; }
+body.holo-theme .app-navigation .top-nav { box-shadow: 5px 5px 0 rgb(24 24 22 / 8%); }
+body.holo-theme .app-navigation .top-nav a { padding: 9px 14px; border: 0; min-height: 0; font-size: 12px; letter-spacing: .04em; }
+body.holo-theme .page-root .paper-hero { align-items: center; gap: 18px; padding-bottom: 24px; }
+body.holo-theme .page-root .paper-hero h1 { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; font-size: clamp(30px, 5vw, 46px); line-height: 1.08; }
+body.holo-theme .page-root .paper-hero .hero-copy { margin: -9px 0 0; line-height: 1.7; }
+body.holo-theme .page-root .paper-hero .album-index { padding: 0 0 0 18px; }
+body.holo-theme .page-root .paper-hero .album-index strong { font-size: 46px; }
+body.holo-theme .page-root[data-page="invoice"] .hero-copy { max-width: 590px; }
+body.holo-theme .page-root[data-page="weekly-report"] .hero-copy { max-width: 650px; }
+body.holo-theme .page-root .upload-panel { box-shadow: 5px 5px 0 rgb(24 24 22 / 8%); }
+body.holo-theme .page-root .upload-meta { padding: 13px 8px 3px; gap: 10px 18px; border-top: 1px solid var(--line); font-size: 11px; }
+body.holo-theme .page-root .upload-meta .meta-dot { display: inline-block; width: 5px; height: 5px; margin-right: 5px; background: var(--primary); transform: rotate(45deg); }
+body.holo-theme .page-root[data-page="jira"] .route-content .mode-switch { margin-bottom: 22px; padding: 4px; border: 1px solid var(--text); box-shadow: 5px 5px 0 rgb(24 24 22 / 8%); }
+body.holo-theme .page-root[data-page="jira"] .route-content .mode-switch a { min-width: 72px; min-height: 0; padding: 8px 14px; font-size: 12px; }
+body.holo-theme .page-root[data-page="jira"] .route-content .drop-zone { grid-template-columns: 64px minmax(0, 1fr) auto; gap: 18px; min-height: 158px; padding: 28px 30px; }
+body.holo-theme .page-root[data-page="jira"] .route-content .upload-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--text); color: var(--surface-solid); }
+body.holo-theme .page-root[data-page="jira"] .route-content .upload-copy strong { font-size: 18px; }
+body.holo-theme .page-root[data-page="jira"] .route-content #selectButton,
+body.holo-theme .page-root[data-page="weekly-report"] .route-content #zipButton { padding: 11px 17px; min-width: 0; min-height: 0; border: 0; border-radius: 0; background: var(--primary); color: white; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+body.holo-theme .page-root[data-page="weekly-report"] .route-content #folderButton { padding: 9px 13px; min-height: 0; border: 1px solid currentColor; border-radius: 0; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-new-task-toolbar { display: grid; gap: 14px; margin: 0; padding: 4px; background: #f4f6f8; border: 1px solid #d8e0e8; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-stat-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-stat-row { grid-template-columns: minmax(230px, 1.45fr) repeat(3, minmax(150px, .9fr)); gap: 8px; padding: 0; border: 0; align-items: center; }
+body.holo-theme .page-root[data-page="jira"] .route-content :is(.weekly-stat-button, .weekly-action-button) { grid-column: auto; min-height: 42px; min-width: 0; padding: 8px 15px; border: 1px solid #c6d1dd; border-radius: 0; color: #23405c; background: white; font-size: 15px; font-weight: 600; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-stat-button { text-align: left; font-weight: 700; background: #e9eef3; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-action-button.is-generate { color: white; background: #285a78; border-color: #285a78; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-action-button.is-ready { padding-right: 38px; color: #1f5b47; background: #e4f2eb; border-color: #8ebda9; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-action-button.is-generate.is-ready { color: white; background: #2f7461; border-color: #2f7461; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-action-button.is-processing { padding-right: 38px; color: #7a5316; background: #f8eed8; border-color: #d7b473; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-action-button.is-awaiting-paste { color: #385979; background: #eef5fa; border-color: #8fb1ca; }
+body.holo-theme .page-root[data-page="jira"] .route-content .weekly-summary-action { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 14px; padding-top: 8px; color: #526578; font-size: 14px; }
+body.holo-theme .page-root[data-page="jira"] .route-content #newTaskStatus { font-size: 16px; }
+body.holo-theme .page-root[data-page="reimbursement"] { --accent: #cf432d; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .hero { max-width: none; padding: 0; border: 0; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .workspace { margin-top: 0; gap: 0; border-radius: 0; box-shadow: none; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .drop { display: block; min-height: 0; border-radius: 0; text-align: center; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .details { margin: 0; border: 0; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .primary { align-self: center; min-width: 126px; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .result { grid-template-columns: none; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .name:empty { display: none; }
+body.holo-theme .page-root[data-page="reimbursement"] .route-content .status:empty { display: block; }
+@media (hover: hover) {
+  body.holo-theme .page-root[data-page="jira"] .route-content .weekly-action-button:hover:not(:disabled):not(.is-ready):not(.is-processing) { color: #183b5b; border-color: #7f9fbc; background: #eef5fa; }
+  body.holo-theme .page-root[data-page="jira"] .route-content .weekly-action-button.is-generate:hover:not(:disabled):not(.is-ready) { color: white; background: #12324e; border-color: #12324e; }
+  body.holo-theme .page-root[data-page="reimbursement"] .route-content .primary:hover:not(:disabled),
+  body.holo-theme .page-root[data-page="jira"] .route-content #selectButton:hover:not(:disabled),
+  body.holo-theme .page-root[data-page="weekly-report"] .route-content #zipButton:hover:not(:disabled) { background: #ac3423; }
+}
+@media (max-width: 900px) {
+  body.holo-theme .page-root[data-page="jira"] .route-content .weekly-stat-row { grid-template-columns: minmax(0, 1.45fr) repeat(3, minmax(0, .9fr)); }
+  body.holo-theme .page-root[data-page="jira"] .route-content :is(.weekly-stat-button, .weekly-action-button) { padding: 8px; font-size: 13px; }
+}
+@media (max-width: 760px) {
+  body.holo-theme .page-root .paper-hero { grid-template-columns: 54px minmax(0, 1fr); gap: 14px; }
+  body.holo-theme .page-root .paper-hero .hero-copy { grid-column: 1 / -1; margin: 0; }
+  body.holo-theme .page-root[data-page="jira"] .route-content .drop-zone { grid-template-columns: 44px minmax(0, 1fr); padding: 24px 20px; }
+  body.holo-theme .page-root[data-page="jira"] .route-content .upload-icon { width: 44px; height: 44px; }
+  body.holo-theme .page-root[data-page="jira"] .route-content .weekly-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body.holo-theme .page-root[data-page="jira"] .route-content .weekly-stat-button { grid-column: 1 / -1; }
+  body.holo-theme .page-root[data-page="jira"] .route-content .weekly-summary-action { flex-wrap: wrap; }
+  body.holo-theme .page-root[data-page="reimbursement"] .route-content .workspace { grid-template-columns: minmax(0, 1fr); }
+  body.holo-theme .page-root[data-page="reimbursement"] .route-content .upload { min-height: 285px; padding: 24px; border-right: 0; border-bottom: 1px solid var(--line); }
+  body.holo-theme .page-root[data-page="reimbursement"] .route-content h1 { font-size: 23px; }
+}

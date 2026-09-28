@@ -1,0 +1,784 @@
+@layer page-layout {
+:where(.page-root[data-page="invoice"]) * { box-sizing:border-box; }
+:where(.page-root[data-page="invoice"]) button,
+:where(.page-root[data-page="invoice"]) input { font:inherit; }
+:where(.page-root[data-page="invoice"]) button { color:inherit; }
+:where(.page-root[data-page="invoice"]) [hidden] { display:none !important; }
+:where(.page-root[data-page="invoice"]) .sr-only {
+    position:absolute;
+    width:1px;
+    height:1px;
+    padding:0;
+    margin:-1px;
+    overflow:hidden;
+    clip:rect(0, 0, 0, 0);
+    white-space:nowrap;
+    border:0;
+  }
+:where(.page-root[data-page="invoice"]) .hero {
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:14px;
+    align-items:center;
+    max-width:720px;
+    margin-bottom:24px;
+  }
+:where(.page-root[data-page="invoice"]) .brand-mark {
+    display:grid;
+    place-items:center;
+    width:48px;
+    height:48px;
+    border:1px solid var(--line-strong);
+    border-radius:9px;
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .brand-mark svg { width:23px; height:23px; color:var(--primary); }
+:where(.page-root[data-page="invoice"]) .eyebrow {
+    margin:0 0 4px;
+    color:var(--muted);
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.04em;
+  }
+:where(.page-root[data-page="invoice"]) .hero h1 {
+    margin:0;
+    font-size:clamp(24px, 4vw, 32px);
+    line-height:1.15;
+    letter-spacing:-.02em;
+  }
+:where(.page-root[data-page="invoice"]) .hero-copy {
+    grid-column:2;
+    margin:-5px 0 0;
+    color:var(--muted);
+    font-size:14px;
+    line-height:1.7;
+  }
+:where(.page-root[data-page="invoice"]) .upload-panel,
+:where(.page-root[data-page="invoice"]) .summary-panel,
+:where(.page-root[data-page="invoice"]) .result-card {
+    border:1px solid var(--line);
+    background:var(--surface);
+    box-shadow:none;
+  }
+:where(.page-root[data-page="invoice"]) .upload-panel {
+    position:relative;
+    padding:10px;
+    border-radius:var(--radius-xl);
+  }
+:where(.page-root[data-page="invoice"]) .drop-zone {
+    position:relative;
+    display:grid;
+    grid-template-columns:auto 1fr auto;
+    gap:18px;
+    align-items:center;
+    min-height:150px;
+    padding:28px 30px;
+    border:1px dashed var(--line);
+    border-radius:9px;
+    background:var(--surface-soft);
+    cursor:pointer;
+    transition:border-color .16s ease, background .16s ease;
+    outline:none;
+    overflow:hidden;
+  }
+:where(.page-root[data-page="invoice"]) .drop-zone::after { display:none; }
+:where(.page-root[data-page="invoice"]) .drop-zone:hover,
+:where(.page-root[data-page="invoice"]) .drop-zone:focus-visible,
+:where(.page-root[data-page="invoice"]) .drop-zone.is-dragging {
+    border-color:var(--line);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .upload-icon {
+    display:grid;
+    place-items:center;
+    width:62px;
+    height:62px;
+    border-radius:9px;
+    color:var(--primary-bright);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .upload-icon svg { width:29px; height:29px; }
+:where(.page-root[data-page="invoice"]) .upload-copy strong { display:block; font-size:17px; margin-bottom:7px; }
+:where(.page-root[data-page="invoice"]) .upload-copy span { color:var(--muted); font-size:13px; line-height:1.65; }
+:where(.page-root[data-page="invoice"]) .select-button,
+:where(.page-root[data-page="invoice"]) .ghost-button,
+:where(.page-root[data-page="invoice"]) .icon-button {
+    border:0;
+    cursor:pointer;
+    transition:transform .18s ease, background .18s ease, border-color .18s ease;
+  }
+:where(.page-root[data-page="invoice"]) .select-button {
+    position:relative;
+    z-index:1;
+    padding:11px 17px;
+    border-radius:7px;
+    color:var(--text);
+    font-size:13px;
+    font-weight:700;
+    background:var(--primary);
+  }
+:where(.page-root[data-page="invoice"]) .select-button:hover { background:var(--action); }
+:where(.page-root[data-page="invoice"]) .select-actions {
+    position:relative;
+    z-index:1;
+    display:flex;
+    gap:8px;
+  }
+:where(.page-root[data-page="invoice"]) .select-actions .folder-button { order:1; }
+:where(.page-root[data-page="invoice"]) .select-actions .select-button { order:2; }
+:where(.page-root[data-page="invoice"]) .folder-button {
+    padding:10px 16px;
+    border:1px solid var(--line-strong);
+    border-radius:7px;
+    color:var(--text-soft);
+    background:var(--surface-soft);
+    font-size:13px;
+    font-weight:700;
+    cursor:pointer;
+  }
+:where(.page-root[data-page="invoice"]) .folder-button:hover { border-color:var(--primary); color:var(--primary); }
+:where(.page-root[data-page="invoice"]) .upload-meta {
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    padding:11px 12px 2px;
+  }
+:where(.page-root[data-page="invoice"]) .meta-chip {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:4px 2px;
+    margin-right:10px;
+    border-radius:3px;
+    color:var(--muted);
+    background:transparent;
+    font-size:11px;
+  }
+:where(.page-root[data-page="invoice"]) .meta-dot { width:5px; height:5px; border-radius:50%; background:var(--cyan); }
+:where(.page-root[data-page="invoice"]) .progress-panel {
+    padding:28px 30px;
+    min-height:150px;
+    border-radius:17px;
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .progress-head { display:flex; align-items:center; gap:14px; }
+:where(.page-root[data-page="invoice"]) .spinner {
+    width:34px;
+    height:34px;
+    border:3px solid var(--line);
+    border-top-color:var(--primary-bright);
+    border-radius:50%;
+    animation:invoice-spin .75s linear infinite;
+  }
+:where(.page-root[data-page="invoice"]) .progress-head strong { display:block; font-size:15px; }
+:where(.page-root[data-page="invoice"]) .progress-head span { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
+:where(.page-root[data-page="invoice"]) .progress-track {
+    height:5px;
+    margin-top:25px;
+    border-radius:99px;
+    background:var(--surface-soft);
+    overflow:hidden;
+  }
+:where(.page-root[data-page="invoice"]) .progress-bar {
+    width:38%;
+    height:100%;
+    border-radius:inherit;
+    background:var(--primary);
+    animation:invoice-progress 1.45s ease-in-out infinite;
+  }
+:where(.page-root[data-page="invoice"]) .workspace { margin-top:22px; }
+:where(.page-root[data-page="invoice"]) .summary-panel {
+    display:grid;
+    grid-template-columns:minmax(260px, 1.15fr) minmax(360px, 1fr);
+    gap:28px;
+    padding:30px;
+    border-radius:var(--radius-xl);
+    background:var(--surface);
+  }
+:where(.page-root[data-page="invoice"]) .summary-kicker { color:var(--muted); font-size:12px; margin-bottom:8px; }
+:where(.page-root[data-page="invoice"]) .grand-amount {
+    margin:0;
+    font-size:clamp(36px, 6vw, 50px);
+    line-height:1;
+    letter-spacing:-.045em;
+    font-variant-numeric:tabular-nums;
+  }
+:where(.page-root[data-page="invoice"]) .summary-status {
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    margin-top:15px;
+    color:var(--text-soft);
+    font-size:12px;
+  }
+:where(.page-root[data-page="invoice"]) .summary-confidence { padding-left:8px; border-left:1px solid var(--line-strong); font-weight:700; }
+:where(.page-root[data-page="invoice"]) .summary-confidence.is-high { color:var(--green); }
+:where(.page-root[data-page="invoice"]) .summary-confidence.is-medium { color:var(--yellow); }
+:where(.page-root[data-page="invoice"]) .summary-confidence.is-low { color:var(--red); }
+:where(.page-root[data-page="invoice"]) .status-dot {
+    width:7px;
+    height:7px;
+    border-radius:50%;
+    background:var(--green);
+  }
+:where(.page-root[data-page="invoice"]) .status-dot.is-warn { background:var(--yellow); }
+:where(.page-root[data-page="invoice"]) .status-dot.is-error { background:var(--red); }
+:where(.page-root[data-page="invoice"]) .summary-side { display:flex; flex-direction:column; justify-content:space-between; gap:18px; }
+:where(.page-root[data-page="invoice"]) .summary-stats {
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:10px;
+  }
+:where(.page-root[data-page="invoice"]) .summary-stat {
+    min-width:0;
+    padding:14px;
+    border:1px solid var(--line);
+    border-radius:var(--radius-md);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .summary-stat span { display:block; color:var(--muted); font-size:11px; }
+:where(.page-root[data-page="invoice"]) .summary-stat strong { display:block; margin-top:6px; font-size:17px; }
+:where(.page-root[data-page="invoice"]) .summary-actions { display:flex; justify-content:flex-end; gap:9px; }
+:where(.page-root[data-page="invoice"]) .ghost-button {
+    padding:9px 13px;
+    border:1px solid var(--line-strong);
+    border-radius:10px;
+    color:var(--text-soft);
+    background:var(--surface-soft);
+    font-size:12px;
+  }
+:where(.page-root[data-page="invoice"]) .ghost-button:hover { border-color:var(--line); background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .uppercase-total {
+    grid-column:1 / -1;
+    display:grid;
+    grid-template-columns:auto minmax(0, 1fr) auto;
+    align-items:center;
+    gap:18px;
+    padding:16px 0 0;
+    border-top:1px solid var(--line);
+  }
+:where(.page-root[data-page="invoice"]) .uppercase-label {
+    color:var(--muted);
+    font-size:11px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+:where(.page-root[data-page="invoice"]) .uppercase-amount {
+    min-width:0;
+    font-family:"STSong", "SimSun", serif;
+    font-size:18px;
+    font-weight:700;
+    line-height:1.55;
+    letter-spacing:.18em;
+    overflow-wrap:anywhere;
+  }
+:where(.page-root[data-page="invoice"]) .uppercase-amount .amount-digit {
+    display:inline-block;
+    color:var(--primary);
+    font-weight:900;
+    text-shadow:0 0 0 currentColor;
+    transform:scale(1.08);
+  }
+:where(.page-root[data-page="invoice"]) .copy-button {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    min-width:112px;
+  }
+:where(.page-root[data-page="invoice"]) .copy-button svg { width:15px; height:15px; }
+:where(.page-root[data-page="invoice"]) .copy-button:disabled { cursor:not-allowed; opacity:.5; }
+:where(.page-root[data-page="invoice"]) .copy-button.is-copied { border-color:var(--green); color:var(--green); }
+:where(.page-root[data-page="invoice"]) .source-tree {
+    margin-top:14px;
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    background:var(--surface);
+    box-shadow:none;
+  }
+:where(.page-root[data-page="invoice"]) .source-tree-head {
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:14px;
+    padding:17px 20px 12px;
+    border-bottom:1px solid var(--line);
+  }
+:where(.page-root[data-page="invoice"]) .source-tree-head strong { font-size:14px; }
+:where(.page-root[data-page="invoice"]) .source-tree-head span { color:var(--muted); font-size:11px; }
+:where(.page-root[data-page="invoice"]) .source-list { padding:4px 20px 14px; }
+:where(.page-root[data-page="invoice"]) .source-item { border-bottom:1px solid var(--line); }
+:where(.page-root[data-page="invoice"]) .source-item:last-child { border-bottom:0; }
+:where(.page-root[data-page="invoice"]) .source-item > summary {
+    display:flex;
+    align-items:center;
+    gap:9px;
+    padding:11px 0;
+    cursor:pointer;
+    list-style:none;
+    font-size:12px;
+    font-weight:700;
+  }
+:where(.page-root[data-page="invoice"]) .source-item > summary::-webkit-details-marker { display:none; }
+:where(.page-root[data-page="invoice"]) .source-arrow { color:var(--muted); font-size:13px; transition:transform .18s ease; }
+:where(.page-root[data-page="invoice"]) .source-item[open] .source-arrow { transform:rotate(90deg); }
+:where(.page-root[data-page="invoice"]) .source-badge { margin-left:auto; color:var(--muted); font-size:10px; font-weight:500; }
+:where(.page-root[data-page="invoice"]) .source-entry-list { padding:0 0 10px 24px; }
+:where(.page-root[data-page="invoice"]) .source-entry {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-height:26px;
+    padding-left:calc(var(--entry-depth, 0) * 14px);
+    color:var(--text-soft);
+    font-size:11px;
+  }
+:where(.page-root[data-page="invoice"]) .source-entry-path { flex:1; min-width:0; overflow-wrap:anywhere; }
+:where(.page-root[data-page="invoice"]) .source-entry-status { color:var(--muted); font-size:10px; white-space:nowrap; }
+:where(.page-root[data-page="invoice"]) .source-entry.is-directory { color:var(--text-soft); font-weight:650; }
+:where(.page-root[data-page="invoice"]) .source-entry.is-ignored { color:var(--muted); }
+:where(.page-root[data-page="invoice"]) .source-entry.is-error .source-entry-status { color:var(--red); }
+:where(.page-root[data-page="invoice"]) .preview-progress {
+    margin-top:14px;
+    padding:17px 20px 16px;
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .preview-progress-head { display:flex; align-items:baseline; justify-content:space-between; gap:14px; }
+:where(.page-root[data-page="invoice"]) .preview-progress-head strong { display:block; font-size:13px; }
+:where(.page-root[data-page="invoice"]) .preview-progress-head span { display:block; margin-top:4px; color:var(--muted); font-size:11px; }
+:where(.page-root[data-page="invoice"]) .preview-progress-count { color:var(--primary) !important; font-variant-numeric:tabular-nums; white-space:nowrap; }
+:where(.page-root[data-page="invoice"]) .preview-progress-track,
+:where(.page-root[data-page="invoice"]) .preview-subprogress-track { height:6px; margin-top:13px; overflow:hidden; border-radius:99px; background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .preview-progress-bar,
+:where(.page-root[data-page="invoice"]) .preview-subprogress-bar { width:0; height:100%; border-radius:inherit; background:var(--primary); transition:width .25s ease; }
+:where(.page-root[data-page="invoice"]) .preview-subprogress { display:grid; grid-template-columns:minmax(150px, .4fr) 1fr; align-items:center; gap:12px; margin-top:11px; }
+:where(.page-root[data-page="invoice"]) .preview-subprogress > span { overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+:where(.page-root[data-page="invoice"]) .preview-subprogress-track { margin-top:0; height:4px; background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .preview-subprogress-bar { background:var(--primary-bright); }
+:where(.page-root[data-page="invoice"]) .results-head {
+    display:flex;
+    align-items:end;
+    justify-content:space-between;
+    margin:34px 2px 14px;
+  }
+:where(.page-root[data-page="invoice"]) .results-head h2 { margin:0; font-size:18px; letter-spacing:-.02em; }
+:where(.page-root[data-page="invoice"]) .results-head p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+:where(.page-root[data-page="invoice"]) .results-count { color:var(--muted); font-size:12px; }
+:where(.page-root[data-page="invoice"]) .result-card {
+    margin-top:12px;
+    border-radius:var(--radius-lg);
+    overflow:hidden;
+  }
+:where(.page-root[data-page="invoice"]) .result-main { padding:22px 24px; }
+:where(.page-root[data-page="invoice"]) .result-top {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:20px;
+  }
+:where(.page-root[data-page="invoice"]) .file-line { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
+:where(.page-root[data-page="invoice"]) .file-icon {
+    display:grid;
+    place-items:center;
+    width:34px;
+    height:34px;
+    border-radius:7px;
+    background:var(--surface-soft);
+    color:var(--primary);
+    font-size:11px;
+    font-weight:800;
+  }
+:where(.page-root[data-page="invoice"]) .file-name { max-width:min(560px, 70vw); font-size:15px; font-weight:700; word-break:break-all; }
+:where(.page-root[data-page="invoice"]) .badge {
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:5px 9px;
+    border-radius:5px;
+    font-size:10px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+:where(.page-root[data-page="invoice"]) .badge-success { color:var(--green); background:var(--green-soft); }
+:where(.page-root[data-page="invoice"]) .badge-info { color:var(--text); background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .badge-warn { color:var(--yellow); background:var(--yellow-soft); }
+:where(.page-root[data-page="invoice"]) .badge-error { color:var(--red); background:var(--red-soft); }
+:where(.page-root[data-page="invoice"]) .result-sub { margin:9px 0 0 43px; color:var(--muted); font-size:12px; line-height:1.55; }
+:where(.page-root[data-page="invoice"]) .file-total { flex:none; text-align:right; }
+:where(.page-root[data-page="invoice"]) .file-total span { display:block; color:var(--muted); font-size:10px; }
+:where(.page-root[data-page="invoice"]) .file-total strong { display:block; margin-top:4px; font-size:25px; font-variant-numeric:tabular-nums; }
+:where(.page-root[data-page="invoice"]) .check-grid {
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:10px;
+    margin-top:20px;
+  }
+:where(.page-root[data-page="invoice"]) .check-item {
+    padding:13px 14px;
+    border:1px solid var(--line);
+    border-radius:var(--radius-md);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .check-item span { display:block; color:var(--muted); font-size:10px; }
+:where(.page-root[data-page="invoice"]) .check-item strong { display:block; margin-top:5px; color:var(--text-soft); font-size:12px; }
+:where(.page-root[data-page="invoice"]) .message {
+    display:flex;
+    align-items:flex-start;
+    gap:9px;
+    margin-top:12px;
+    padding:10px 12px;
+    border-radius:6px;
+    font-size:12px;
+    line-height:1.55;
+  }
+:where(.page-root[data-page="invoice"]) .message-info { color:var(--text); background:var(--surface-soft); border-left:2px solid var(--primary); }
+:where(.page-root[data-page="invoice"]) .message-warn { color:var(--yellow); background:var(--yellow-soft); border-left:2px solid var(--yellow); }
+:where(.page-root[data-page="invoice"]) .message-error { color:var(--red); background:var(--red-soft); border-left:2px solid var(--red); }
+:where(.page-root[data-page="invoice"]) .message-mark { flex:none; font-weight:800; }
+:where(.page-root[data-page="invoice"]) .route-details {
+    border-top:1px solid var(--line);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .route-details > summary {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:15px 24px;
+    color:var(--text-soft);
+    cursor:pointer;
+    font-size:12px;
+    list-style:none;
+    user-select:none;
+  }
+:where(.page-root[data-page="invoice"]) .route-details > summary::-webkit-details-marker { display:none; }
+:where(.page-root[data-page="invoice"]) .detail-arrow { color:var(--muted); transition:transform .2s ease; }
+:where(.page-root[data-page="invoice"]) .route-details[open] .detail-arrow { transform:rotate(180deg); }
+:where(.page-root[data-page="invoice"]) .route-details > summary:hover { background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .route-list { padding:2px 24px 20px; }
+:where(.page-root[data-page="invoice"]) .route-row {
+    display:grid;
+    grid-template-columns:minmax(160px, .7fr) minmax(120px, .35fr) minmax(280px, 1.5fr);
+    gap:18px;
+    align-items:start;
+    padding:15px 0;
+    border-top:1px solid var(--line);
+  }
+:where(.page-root[data-page="invoice"]) .route-name strong { display:block; font-size:12px; }
+:where(.page-root[data-page="invoice"]) .route-name span { display:block; margin-top:4px; color:var(--muted); font-size:10px; }
+:where(.page-root[data-page="invoice"]) .route-sum { font-size:13px; font-weight:750; font-variant-numeric:tabular-nums; }
+:where(.page-root[data-page="invoice"]) .value-chips { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; }
+:where(.page-root[data-page="invoice"]) .value-chip {
+    padding:4px 7px;
+    border-radius:4px;
+    color:var(--muted);
+    background:var(--surface-soft);
+    font-size:10px;
+    font-variant-numeric:tabular-nums;
+  }
+:where(.page-root[data-page="invoice"]) .values-more { width:100%; text-align:right; }
+:where(.page-root[data-page="invoice"]) .values-more summary { color:var(--primary-bright); cursor:pointer; font-size:10px; list-style:none; }
+:where(.page-root[data-page="invoice"]) .values-more summary::-webkit-details-marker { display:none; }
+:where(.page-root[data-page="invoice"]) .values-more[open] summary { margin-bottom:8px; }
+:where(.page-root[data-page="invoice"]) .preview-section { padding:0 24px 22px; }
+:where(.page-root[data-page="invoice"]) .preview-heading { margin:4px 0 10px; color:var(--muted); font-size:11px; }
+:where(.page-root[data-page="invoice"]) .preview-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+:where(.page-root[data-page="invoice"]) .preview-open {
+    display:grid;
+    grid-template-columns:112px 1fr auto;
+    align-items:center;
+    gap:14px;
+    width:100%;
+    padding:9px;
+    border:1px solid var(--line);
+    border-radius:var(--radius-md);
+    color:var(--text);
+    background:var(--surface-soft);
+    cursor:zoom-in;
+    text-align:left;
+    transition:transform .18s ease, border-color .18s ease, background .18s ease;
+  }
+:where(.page-root[data-page="invoice"]) .preview-open:hover {
+    border-color:var(--line);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .preview-thumb {
+    width:112px;
+    height:76px;
+    border-radius:8px;
+    object-fit:cover;
+    object-position:top;
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .preview-copy strong { display:block; font-size:12px; }
+:where(.page-root[data-page="invoice"]) .preview-copy span { display:block; margin-top:5px; color:var(--muted); font-size:10px; }
+:where(.page-root[data-page="invoice"]) .preview-amount { display:block; margin-top:8px; color:var(--text); font-size:12px; font-style:normal; font-weight:750; font-variant-numeric:tabular-nums; }
+:where(.page-root[data-page="invoice"]) .preview-zoom { color:var(--primary-bright); font-size:18px; }
+:where(.page-root[data-page="invoice"]) .error-card .result-main { padding-bottom:24px; }
+:where(.page-root[data-page="invoice"]) .error-title { margin:14px 0 0 43px; color:var(--red); font-size:13px; }
+:where(.page-root[data-page="invoice"]) .viewer {
+    position:fixed;
+    inset:0;
+    z-index:30;
+    display:grid;
+    place-items:center;
+    padding:28px;
+    background:var(--overlay);
+    opacity:0;
+    visibility:hidden;
+    transition:opacity .22s ease, visibility .22s ease;
+  }
+:where(.page-root[data-page="invoice"]) .viewer.is-open { opacity:1; visibility:visible; }
+:where(.page-root[data-page="invoice"]) .viewer-dialog {
+    display:flex;
+    flex-direction:column;
+    width:min(1180px, 96vw);
+    height:min(900px, 92vh);
+    border:1px solid var(--line-strong);
+    border-radius:10px;
+    background:var(--surface-soft);
+    box-shadow:none;
+    overflow:hidden;
+    transform:translateY(16px) scale(.985);
+    transition:transform .22s ease;
+  }
+:where(.page-root[data-page="invoice"]) .viewer.is-open .viewer-dialog { transform:translateY(0) scale(1); }
+:where(.page-root[data-page="invoice"]) .viewer-head {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    min-height:58px;
+    padding:11px 14px 11px 20px;
+    border-bottom:1px solid var(--line);
+  }
+:where(.page-root[data-page="invoice"]) .viewer-title { font-size:13px; font-weight:700; }
+:where(.page-root[data-page="invoice"]) .viewer-actions { display:flex; gap:7px; }
+:where(.page-root[data-page="invoice"]) .icon-button {
+    display:grid;
+    place-items:center;
+    width:34px;
+    height:34px;
+    border:1px solid var(--line);
+    border-radius:9px;
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .icon-button:hover { background:var(--surface-soft); border-color:var(--line); }
+:where(.page-root[data-page="invoice"]) .viewer-canvas {
+    flex:1;
+    min-height:0;
+    padding:20px;
+    overflow:auto;
+    text-align:center;
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .viewer-canvas img {
+    max-width:100%;
+    height:auto;
+    border-radius:8px;
+    background:var(--surface-soft);
+    box-shadow:none;
+  }
+:where(.page-root[data-page="invoice"]) .hero {
+    grid-template-columns:70px minmax(0, 1fr) auto;
+    gap:18px;
+    max-width:none;
+    margin-bottom:28px;
+    padding-bottom:24px;
+    border-bottom:2px solid var(--line);
+  }
+:where(.page-root[data-page="invoice"]) .brand-mark {
+    width:70px;
+    height:70px;
+    border:0;
+    border-radius:0;
+    color:var(--text);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .brand-mark svg { width:29px; height:29px; color:inherit; }
+:where(.page-root[data-page="invoice"]) .eyebrow {
+    margin-bottom:7px;
+    color:var(--primary);
+    font-family:Consolas, "SFMono-Regular", monospace;
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+  }
+:where(.page-root[data-page="invoice"]) .hero h1 {
+    font-family:"Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size:clamp(30px, 5vw, 46px);
+    font-weight:800;
+    letter-spacing:-.055em;
+  }
+:where(.page-root[data-page="invoice"]) .hero-copy {
+    grid-column:2;
+    max-width:590px;
+    margin:-9px 0 0;
+    color:var(--text-soft);
+    font-size:13px;
+  }
+:where(.page-root[data-page="invoice"]) .album-index {
+    grid-column:3;
+    grid-row:1 / span 2;
+    align-self:stretch;
+    min-width:128px;
+    padding-left:18px;
+    border-left:1px solid var(--line);
+    text-align:right;
+  }
+:where(.page-root[data-page="invoice"]) .album-index strong {
+    display:block;
+    color:var(--primary);
+    font-family:Georgia, "Times New Roman", serif;
+    font-size:46px;
+    font-weight:400;
+    line-height:.9;
+  }
+:where(.page-root[data-page="invoice"]) .album-index span {
+    display:block;
+    margin-top:13px;
+    color:var(--muted);
+    font-family:Consolas, "SFMono-Regular", monospace;
+    font-size:9px;
+    letter-spacing:.14em;
+  }
+:where(.page-root[data-page="invoice"]) .upload-panel,
+:where(.page-root[data-page="invoice"]) .summary-panel,
+:where(.page-root[data-page="invoice"]) .result-card { border-color:var(--line); }
+:where(.page-root[data-page="invoice"]) .upload-panel { padding:7px; }
+:where(.page-root[data-page="invoice"]) .drop-zone {
+    min-height:158px;
+    border-color:var(--line);
+    border-radius:0;
+    background:var(--surface-solid);
+  }
+:where(.page-root[data-page="invoice"]) .drop-zone:hover,
+:where(.page-root[data-page="invoice"]) .drop-zone:focus-visible,
+:where(.page-root[data-page="invoice"]) .drop-zone.is-dragging { border-color:var(--primary); background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .upload-icon {
+    width:64px;
+    height:64px;
+    border-radius:50%;
+    color:var(--text);
+    background:var(--surface-soft);
+  }
+:where(.page-root[data-page="invoice"]) .upload-copy strong { font-size:18px; letter-spacing:-.02em; }
+:where(.page-root[data-page="invoice"]) .select-button {
+    padding:12px 20px;
+    border-radius:0;
+    color:var(--text);
+    background:var(--surface-soft);
+    letter-spacing:.04em;
+  }
+:where(.page-root[data-page="invoice"]) .select-button:hover { background:var(--action); }
+:where(.page-root[data-page="invoice"]) .folder-button { border-radius:0; border-color:var(--primary); color:var(--text); background:var(--primary); }
+:where(.page-root[data-page="invoice"]) .folder-button:hover { border-color:var(--line); color:var(--text); background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .upload-meta { border-top:1px solid var(--line); }
+:where(.page-root[data-page="invoice"]) .meta-dot { border-radius:0; background:var(--primary); transform:rotate(45deg); }
+:where(.page-root[data-page="invoice"]) .progress-panel { border-radius:0; background:var(--surface-solid); }
+:where(.page-root[data-page="invoice"]) .spinner { border-color:var(--line); border-top-color:var(--primary); }
+:where(.page-root[data-page="invoice"]) .progress-track { height:3px; border-radius:0; background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .progress-bar { border-radius:0; background:var(--primary); }
+:where(.page-root[data-page="invoice"]) .workspace { margin-top:26px; }
+:where(.page-root[data-page="invoice"]) .summary-panel {
+    position:relative;
+    color:var(--text);
+    background:var(--surface-soft);
+    box-shadow:none;
+    overflow:hidden;
+  }
+:where(.page-root[data-page="invoice"]) .summary-panel::before {
+    content:"TOTAL / 合计";
+    position:absolute;
+    top:18px;
+    right:22px;
+    color:var(--text);
+    font-family:Georgia, serif;
+    font-size:clamp(32px, 7vw, 74px);
+    letter-spacing:-.05em;
+    pointer-events:none;
+  }
+:where(.page-root[data-page="invoice"]) .summary-kicker { position:relative; color:var(--muted); letter-spacing:.12em; }
+:where(.page-root[data-page="invoice"]) .grand-amount { position:relative; font-family:Georgia, "Times New Roman", serif; font-weight:400; }
+:where(.page-root[data-page="invoice"]) .summary-status { position:relative; color:var(--text); }
+:where(.page-root[data-page="invoice"]) .summary-stat { position:relative; border-color:var(--line); border-radius:0; background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .summary-stat span { color:var(--muted); }
+:where(.page-root[data-page="invoice"]) .summary-stat strong { color:var(--text); font-family:Georgia, serif; font-weight:400; }
+:where(.page-root[data-page="invoice"]) .ghost-button { position:relative; border-color:var(--line); border-radius:0; color:var(--text); background:transparent; }
+:where(.page-root[data-page="invoice"]) .ghost-button:hover { border-color:var(--line); background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .uppercase-total { position:relative; border-color:var(--line); }
+:where(.page-root[data-page="invoice"]) .uppercase-label { color:var(--muted); }
+:where(.page-root[data-page="invoice"]) .uppercase-amount { color:var(--text); }
+:where(.page-root[data-page="invoice"]) .copy-button.is-copied { border-color:var(--green); color:var(--green); }
+:where(.page-root[data-page="invoice"]) .results-head { margin-top:40px; padding-bottom:12px; border-bottom:2px solid var(--line); }
+:where(.page-root[data-page="invoice"]) .results-head h2 { font-size:22px; }
+:where(.page-root[data-page="invoice"]) .results-count { font-family:Consolas, "SFMono-Regular", monospace; letter-spacing:.08em; }
+:where(.page-root[data-page="invoice"]) .result-card { position:relative; box-shadow:none; }
+:where(.page-root[data-page="invoice"]) .result-card::before { content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--primary); z-index:1; }
+:where(.page-root[data-page="invoice"]) .result-main { padding:23px 26px 23px 30px; }
+:where(.page-root[data-page="invoice"]) .file-icon { border-radius:0; color:var(--text); background:var(--surface-soft); font-family:Consolas, monospace; }
+:where(.page-root[data-page="invoice"]) .badge { border-radius:0; letter-spacing:.03em; }
+:where(.page-root[data-page="invoice"]) .badge-success { color:var(--green); background:var(--green-soft); }
+:where(.page-root[data-page="invoice"]) .badge-info { color:var(--text); background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .badge-warn { color:var(--yellow); background:var(--yellow-soft); }
+:where(.page-root[data-page="invoice"]) .badge-error { color:var(--red); background:var(--red-soft); }
+:where(.page-root[data-page="invoice"]) .file-total strong { font-family:Georgia, "Times New Roman", serif; font-weight:400; }
+:where(.page-root[data-page="invoice"]) .check-item { border-radius:0; background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .message { border-radius:0; }
+:where(.page-root[data-page="invoice"]) .message-info { color:var(--text); background:var(--surface-soft); border-color:var(--primary); }
+:where(.page-root[data-page="invoice"]) .route-details { background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .route-details > summary:hover { background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .value-chip { border-radius:0; background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .preview-open { border-radius:0; background:var(--surface-solid); box-shadow:none; }
+:where(.page-root[data-page="invoice"]) .preview-open:hover { border-color:var(--primary); background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .preview-thumb { border-radius:0; filter:none; }
+:where(.page-root[data-page="invoice"]) .preview-zoom { color:var(--primary); }
+:where(.page-root[data-page="invoice"]) .viewer { background:var(--overlay); }
+:where(.page-root[data-page="invoice"]) .viewer-dialog { border-radius:0; background:var(--surface-solid); }
+:where(.page-root[data-page="invoice"]) .icon-button { border-radius:0; background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .viewer-canvas { background:var(--surface-soft); }
+:where(.page-root[data-page="invoice"]) .viewer-canvas img { border-radius:0; }
+@keyframes invoice-spin { to { transform:rotate(360deg); } }
+@keyframes invoice-progress {
+    0% { transform:translateX(-110%); }
+    55% { transform:translateX(105%); }
+    100% { transform:translateX(270%); }
+  }
+@media (max-width: 760px) {
+:where(.page-root[data-page="invoice"]) .hero { grid-template-columns:54px 1fr; margin-left:4px; }
+:where(.page-root[data-page="invoice"]) .brand-mark { width:54px; height:54px; }
+:where(.page-root[data-page="invoice"]) .hero-copy { grid-column:1 / -1; margin-top:-2px; }
+:where(.page-root[data-page="invoice"]) .album-index { display:none; }
+:where(.page-root[data-page="invoice"]) .drop-zone { grid-template-columns:auto 1fr; padding:24px 20px; }
+:where(.page-root[data-page="invoice"]) .select-actions { grid-column:1 / -1; width:100%; }
+:where(.page-root[data-page="invoice"]) .select-actions button { flex:1; }
+:where(.page-root[data-page="invoice"]) .summary-panel { grid-template-columns:1fr; padding:24px; }
+:where(.page-root[data-page="invoice"]) .summary-actions { justify-content:flex-start; }
+:where(.page-root[data-page="invoice"]) .uppercase-total { grid-template-columns:1fr; gap:8px; }
+:where(.page-root[data-page="invoice"]) .uppercase-amount { font-size:16px; }
+:where(.page-root[data-page="invoice"]) .copy-button { width:100%; margin-top:4px; }
+:where(.page-root[data-page="invoice"]) .result-top { flex-direction:column; }
+:where(.page-root[data-page="invoice"]) .file-total { margin-left:43px; text-align:left; }
+:where(.page-root[data-page="invoice"]) .check-grid { grid-template-columns:1fr; }
+:where(.page-root[data-page="invoice"]) .route-row { grid-template-columns:1fr auto; gap:8px; }
+:where(.page-root[data-page="invoice"]) .value-chips { grid-column:1 / -1; justify-content:flex-start; }
+:where(.page-root[data-page="invoice"]) .values-more { text-align:left; }
+:where(.page-root[data-page="invoice"]) .preview-grid { grid-template-columns:1fr; }
+:where(.page-root[data-page="invoice"]) .viewer { padding:10px; }
+:where(.page-root[data-page="invoice"]) .viewer-dialog { width:100%; height:96vh; }
+
+  
+}
+@media (prefers-reduced-motion: reduce) {
+:where(.page-root[data-page="invoice"]) *,
+:where(.page-root[data-page="invoice"]) *::before,
+:where(.page-root[data-page="invoice"]) *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important; transition-duration:.01ms !important; }
+
+  
+}
+
+
+
+}

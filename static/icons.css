@@ -1,0 +1,47 @@
+/* Shared line icons: decoration inherits the control color. */
+:root {
+  --icon-file: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M14%203H6a1%201%200%200%200-1%201v16a1%201%200%200%200%201%201h12a1%201%200%200%200%201-1V8zM14%203v5h5M8%2012h8M8%2016h5%22%2F%3E%3C%2Fsvg%3E");
+  --icon-receipt: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%203h14v18l-3-2-4%202-4-2-3%202zM8%207h8M8%2011h8M8%2015h4%22%2F%3E%3C%2Fsvg%3E");
+  --icon-grid: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223%22%20y%3D%223%22%20width%3D%227%22%20height%3D%227%22%20rx%3D%221%22%2F%3E%3Crect%20x%3D%2214%22%20y%3D%223%22%20width%3D%227%22%20height%3D%227%22%20rx%3D%221%22%2F%3E%3Crect%20x%3D%223%22%20y%3D%2214%22%20width%3D%227%22%20height%3D%227%22%20rx%3D%221%22%2F%3E%3Crect%20x%3D%2214%22%20y%3D%2214%22%20width%3D%227%22%20height%3D%227%22%20rx%3D%221%22%2F%3E%3C%2Fsvg%3E");
+  --icon-report: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%203h16v18H4zM8%2016v-4M12%2016V8M16%2016v-6%22%2F%3E%3C%2Fsvg%3E");
+  --icon-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223%22%20y%3D%223%22%20width%3D%2218%22%20height%3D%2218%22%20rx%3D%222%22%2F%3E%3Ccircle%20cx%3D%228%22%20cy%3D%228%22%20r%3D%221.5%22%2F%3E%3Cpath%20d%3D%22m3%2017%205-5%204%204%204-6%205%207%22%2F%3E%3C%2Fsvg%3E");
+  --icon-folder: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%207V5h6l2%202h10v13H3zM3%2010h18%22%2F%3E%3C%2Fsvg%3E");
+  --icon-upload: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%2016V3m-5%205%205-5%205%205M4%2015v6h16v-6%22%2F%3E%3C%2Fsvg%3E");
+  --icon-download: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v13m-5-5%205%205%205-5M4%2016v5h16v-5%22%2F%3E%3C%2Fsvg%3E");
+  --icon-play: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m8%204%2012%208-12%208z%22%2F%3E%3C%2Fsvg%3E");
+  --icon-trash: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%206h18M9%206V3h6v3M5%206l1%2015h12l1-15M10%2010v7M14%2010v7%22%2F%3E%3C%2Fsvg%3E");
+  --icon-clipboard: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8%205H5v16h14V5h-3%22%2F%3E%3Crect%20x%3D%228%22%20y%3D%223%22%20width%3D%228%22%20height%3D%224%22%20rx%3D%221%22%2F%3E%3Cpath%20d%3D%22M8%2011h8M8%2015h5%22%2F%3E%3C%2Fsvg%3E");
+  --icon-check: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m5%2012%204%204L19%206%22%2F%3E%3C%2Fsvg%3E");
+  --icon-alert: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m12%203%2010%2018H2zM12%209v5M12%2017v1%22%2F%3E%3C%2Fsvg%3E");
+  --icon-list: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8%205h13M8%2012h13M8%2019h13M3%205h1M3%2012h1M3%2019h1%22%2F%3E%3C%2Fsvg%3E");
+  --icon-close: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%206%2012%2012M18%206%206%2018%22%2F%3E%3C%2Fsvg%3E");
+  --icon-link: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M14%203h7v7M21%203%2010%2014M11%203H3v18h18v-8%22%2F%3E%3C%2Fsvg%3E");
+  --icon-inbox: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m5%204-3%2012v4h20v-4L19%204zM2%2016h6l2%203h4l2-3h6%22%2F%3E%3C%2Fsvg%3E");
+  --icon-info: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%229%22%2F%3E%3Cpath%20d%3D%22M12%2011v6M12%207v1%22%2F%3E%3C%2Fsvg%3E");
+}
+.ui-icon { display: inline-block; width: 18px; height: 18px; flex: 0 0 auto; vertical-align: middle; }
+.holo-theme [data-icon] { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.holo-theme [data-icon]::before, .holo-theme .empty::before { content: ""; display: inline-block; width: 16px; height: 16px; flex: 0 0 auto; background: currentColor; mask: var(--control-icon) center / contain no-repeat; -webkit-mask: var(--control-icon) center / contain no-repeat; pointer-events: none; }
+[data-icon="file"] { --control-icon: var(--icon-file); }
+[data-icon="receipt"] { --control-icon: var(--icon-receipt); }
+[data-icon="grid"] { --control-icon: var(--icon-grid); }
+[data-icon="report"] { --control-icon: var(--icon-report); }
+[data-icon="image"] { --control-icon: var(--icon-image); }
+[data-icon="folder"] { --control-icon: var(--icon-folder); }
+[data-icon="upload"] { --control-icon: var(--icon-upload); }
+[data-icon="download"] { --control-icon: var(--icon-download); }
+[data-icon="play"] { --control-icon: var(--icon-play); }
+[data-icon="trash"] { --control-icon: var(--icon-trash); }
+[data-icon="clipboard"] { --control-icon: var(--icon-clipboard); }
+[data-icon="check"] { --control-icon: var(--icon-check); }
+[data-icon="alert"] { --control-icon: var(--icon-alert); }
+[data-icon="list"] { --control-icon: var(--icon-list); }
+[data-icon="close"] { --control-icon: var(--icon-close); }
+[data-icon="link"] { --control-icon: var(--icon-link); }
+[data-icon="inbox"] { --control-icon: var(--icon-inbox); }
+[data-icon="info"] { --control-icon: var(--icon-info); }
+.holo-theme .empty { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.holo-theme .empty::before { --control-icon: var(--icon-inbox); width: 30px; height: 30px; opacity: .7; }
+.holo-theme [data-icon][aria-busy="true"]::before { --control-icon: var(--icon-upload); }
+.holo-theme .primary.is-loading[data-icon]::before { visibility: hidden; }
+@media (forced-colors: active) { .holo-theme [data-icon]::before, .holo-theme .empty::before { background: ButtonText; } }

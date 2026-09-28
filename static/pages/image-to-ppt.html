@@ -1,0 +1,24 @@
+<section id="route-content" class="route-content">
+  <header class="hero paper-hero"><div class="brand-mark" aria-hidden="true"><svg class="ui-icon" focusable="false"><use href="/static/icons.svg#image"/></svg></div><div><p class="eyebrow">本地图片转换工具</p><h1>图片转 PPT</h1></div><p class="hero-copy">识别图片中的文字与图形，生成可编辑的 PowerPoint 文件。</p><div class="album-index" aria-hidden="true"><strong>05</strong><span>IMAGE / PPT</span></div></header>
+  <section class="workspace document-workspace" aria-label="图片转 PPT工作区">
+    <div class="upload input-panel">
+      <h2 class="panel-title"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#image"/></svg>源文件</h2>
+      <label role="button" tabindex="0" class="drop" id="drop" for="file">
+        <svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#image"/></svg>
+        <span class="drop-copy"><strong>选择参考图片</strong><span>PNG、JPG、WEBP · 最大 20 MB</span></span>
+        <svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#upload"/></svg>
+      </label>
+      <input id="file" type="file" accept="image/png,image/jpeg,image/webp">
+      <div class="file-actions"><div class="selected-file-label"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#file"/></svg><span id="name">尚未选择文件</span></div><button class="primary" id="generate" type="button" data-icon="play" disabled>生成可编辑 PPT</button></div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+    </div>
+    <section class="output-panel" aria-label="生成与核验">
+      <h2 class="panel-title"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#download"/></svg>生成与核验</h2>
+      <div class="output-placeholder"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#inbox"/></svg><strong>等待生成</strong><p>生成后在这里查看核验分数并下载 PPT。</p></div>
+
+      <section class="result" id="result" hidden><div class="result-head"><h2>生成核验</h2><strong id="score" class="score"></strong></div><div class="checks" id="checks"></div><a class="download" id="download" href="#" data-icon="download">下载 PPT</a></section>
+      <div class="download-slot"></div>
+    </section>
+  </section>
+  <details class="details"><summary>生成规则与说明</summary><div class="details-body"><div><strong>可编辑文字</strong><span>中文 OCR 识别的每段文字都会成为独立文本框。</span></div><div><strong>可编辑图形</strong><span>识别到的信息卡与容器将重建为 PowerPoint 形状。</span></div><div><strong>核验内容</strong><span>页数、画布比例、文本覆盖、对象类型和几何布局。</span></div><div><strong>数据处理</strong><span>文件仅保存在本地临时目录，1 小时后清理。</span></div></div></details>
+</section>

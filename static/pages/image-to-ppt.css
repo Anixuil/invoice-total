@@ -1,0 +1,55 @@
+@layer page-layout {
+:where(.page-root[data-page="image-to-ppt"]) * { box-sizing:border-box; }
+:where(.page-root[data-page="image-to-ppt"]) .hero { display:grid; grid-template-columns:70px minmax(0,1fr); gap:18px; align-items:center; margin-bottom:28px; padding-bottom:24px; border-bottom:2px solid var(--line); }
+:where(.page-root[data-page="image-to-ppt"]) .mark { display:grid; place-items:center; width:70px; height:70px; color:var(--paper); font-size:30px; background:var(--surface-soft); }
+:where(.page-root[data-page="image-to-ppt"]) h1 { margin:0; font-size:clamp(30px,5vw,46px); font-weight:800; letter-spacing:-.04em; }
+:where(.page-root[data-page="image-to-ppt"]) .hero p { margin:8px 0 0; color:var(--text); font-size:13px; line-height:1.7; }
+:where(.page-root[data-page="image-to-ppt"]) .workspace { display:grid; grid-template-columns:minmax(0,1fr) 300px; border:1px solid var(--line); background:var(--paper); box-shadow:none; }
+:where(.page-root[data-page="image-to-ppt"]) .upload { display:flex; min-height:332px; flex-direction:column; justify-content:center; align-items:center; padding:34px; border-right:1px solid var(--line); text-align:center; }
+:where(.page-root[data-page="image-to-ppt"]) .drop { width:min(100%,560px); padding:42px 24px; border:1.5px dashed var(--line); background:var(--surface-soft); cursor:pointer; }
+:where(.page-root[data-page="image-to-ppt"]) .drop.drag { border-color:var(--accent); background:var(--surface-soft); }
+:where(.page-root[data-page="image-to-ppt"]) .drop strong { display:block; font-size:17px; }
+:where(.page-root[data-page="image-to-ppt"]) .drop span { display:block; margin-top:8px; color:var(--muted); font-size:13px; }
+:where(.page-root[data-page="image-to-ppt"]) input { display:none; }
+:where(.page-root[data-page="image-to-ppt"]) button { font:inherit; cursor:pointer; }
+:where(.page-root[data-page="image-to-ppt"]) .primary { margin-top:18px; padding:11px 19px; border:0; background:var(--accent); color:var(--text); font-size:14px; font-weight:700; }
+:where(.page-root[data-page="image-to-ppt"]) .primary:disabled { opacity:.5; cursor:wait; }
+:where(.page-root[data-page="image-to-ppt"]) .file-name,
+:where(.page-root[data-page="image-to-ppt"]) .status { min-height:21px; margin-top:13px; color:var(--muted); font-size:13px; word-break:break-all; }
+:where(.page-root[data-page="image-to-ppt"]) .status.error { color:var(--danger); }
+:where(.page-root[data-page="image-to-ppt"]) .details { padding:26px; }
+:where(.page-root[data-page="image-to-ppt"]) .details h2 { margin:0 0 14px; font-size:16px; }
+:where(.page-root[data-page="image-to-ppt"]) .details div { padding:13px 0; border-top:1px solid var(--line); }
+:where(.page-root[data-page="image-to-ppt"]) .details strong { display:block; font-size:13px; }
+:where(.page-root[data-page="image-to-ppt"]) .details span { display:block; margin-top:5px; color:var(--muted); font-size:12px; line-height:1.55; }
+:where(.page-root[data-page="image-to-ppt"]) .result { margin-top:20px; padding:22px; border:1px solid var(--line); border-top:3px solid var(--accent); background:var(--paper); box-shadow:none; }
+:where(.page-root[data-page="image-to-ppt"]) .result[hidden] { display:none; }
+:where(.page-root[data-page="image-to-ppt"]) .result-head { display:flex; justify-content:space-between; gap:16px; align-items:center; }
+:where(.page-root[data-page="image-to-ppt"]) .result h2 { margin:0; font-size:18px; }
+:where(.page-root[data-page="image-to-ppt"]) .score { color:var(--good); font-weight:700; }
+:where(.page-root[data-page="image-to-ppt"]) .score.warn { color:var(--warn); }
+:where(.page-root[data-page="image-to-ppt"]) .checks { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:18px; }
+:where(.page-root[data-page="image-to-ppt"]) .check { padding:13px; border:1px solid var(--line); background:var(--surface-soft); font-size:13px; }
+:where(.page-root[data-page="image-to-ppt"]) .check span { display:block; margin-top:5px; color:var(--muted); font-size:12px; line-height:1.45; }
+:where(.page-root[data-page="image-to-ppt"]) .pass { color:var(--good); }
+:where(.page-root[data-page="image-to-ppt"]) .fail { color:var(--danger); }
+:where(.page-root[data-page="image-to-ppt"]) .download { display:inline-block; margin-top:18px; padding:10px 16px; background:var(--accent); color:var(--text); text-decoration:none; font-size:14px; font-weight:700; }
+@media (hover:hover) and (pointer:fine) {
+:where(.page-root[data-page="image-to-ppt"]) .drop:hover { border-color:var(--accent); background:var(--surface-soft); }
+:where(.page-root[data-page="image-to-ppt"]) .primary:hover:not(:disabled),
+:where(.page-root[data-page="image-to-ppt"]) .download:hover { background:var(--accent-dark); }
+}
+@media(max-width:720px) {
+:where(.page-root[data-page="image-to-ppt"]) .hero { grid-template-columns:54px minmax(0,1fr); gap:14px; }
+:where(.page-root[data-page="image-to-ppt"]) .mark { width:54px; height:54px; }
+:where(.page-root[data-page="image-to-ppt"]) .workspace { grid-template-columns:1fr; }
+:where(.page-root[data-page="image-to-ppt"]) .upload { min-height:285px; border-right:0; border-bottom:1px solid var(--line); }
+:where(.page-root[data-page="image-to-ppt"]) .checks { grid-template-columns:1fr 1fr; }
+:where(.page-root[data-page="image-to-ppt"]) h1 { font-size:30px; }
+:where(.page-root[data-page="image-to-ppt"]) .result-head { flex-wrap:wrap; }
+ 
+}
+
+  
+
+}

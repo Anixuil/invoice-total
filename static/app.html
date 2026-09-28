@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#E8E4DC">
+  <title>本地办公工具</title>
+  <link rel="stylesheet" href="/static/app.css?v=20260924-paper-3">
+  <link rel="stylesheet" href="/static/icons.css">
+  <link rel="stylesheet" href="/static/page-transition.css?v=20260924-stable-tabs">
+  <link rel="stylesheet" href="/static/reference-layout.css?v=20260924-paper-3">
+</head>
+<body class="holo-theme">
+  <a class="skip-link" href="#pageOutlet">跳至工作区</a>
+  <header class="app-navigation" aria-label="工作台导航">
+    <nav class="top-nav" aria-label="业务模块">
+      <a href="/"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#receipt"/></svg><span>发票核验</span></a>
+      <a href="/jira"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#grid"/></svg><span>Jira 数据处理</span></a>
+      <a href="/weekly-report"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#report"/></svg><span>周报整合</span></a>
+      <a href="/reimbursement"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#file"/></svg><span>报销单生成</span></a>
+      <a href="/image-to-ppt" id="imagePptNavigation" hidden><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#image"/></svg><span>图片转 PPT</span></a>
+    </nav>
+  </header>
+  <main class="shell">
+    <div class="route-status" id="routeStatus" role="status" aria-live="polite" hidden>
+      <span id="routeMessage"></span>
+      <button id="routeRetry" type="button" hidden>重试</button>
+    </div>
+    <div id="pageOutlet" tabindex="-1"></div>
+    <noscript>请启用 JavaScript 后使用本地办公工具。</noscript>
+  </main>
+  <script type="module" src="/static/app.js?v=20260925-weekly-lock-files"></script>
+</body>
+</html>
