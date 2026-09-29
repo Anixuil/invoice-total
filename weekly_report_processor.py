@@ -953,6 +953,39 @@ def _is_generated_artifact(display_name: str) -> bool:
     return bool(re.match(r"^(项目周报|部门周例会)\s*\d", stem))
 
 
+def _is_meeting_only_slide(slide: dict[str, Any]) -> bool:
+    """Reserve Zhang Keke and Guangxi team reports for the meeting document."""
+    values = (
+        _text(slide.get("reporter", "")),
+        _text(slide.get("title", "")),
+        _text(slide.get("project_title", "")),
+        _text(slide.get("file", "")),
+    )
+    return any("张珂珂" in value or "广西团队" in value for value in values)
+
+
+def _is_meeting_only_project(project: dict[str, Any]) -> bool:
+    values = (
+        _text(project.get("reporter", "")),
+        _text(project.get("title", "")),
+        _text(project.get("key", "")),
+        *(_text(item.get("reporter", "")) for item in project.get("slides", [])),
+        *(_text(item.get("title", "")) for item in project.get("slides", [])),
+        *(_text(item.get("file", "")) for item in project.get("slides", [])),
+    )
+    return any("张珂珂" in value or "广西团队" in value for value in values)
+
+
+def _is_guangxi_project(project: dict[str, Any]) -> bool:
+    values = (
+        _text(project.get("title", "")),
+        _text(project.get("key", "")),
+        *(_text(item.get("title", "")) for item in project.get("slides", [])),
+        *(_text(item.get("file", "")) for item in project.get("slides", [])),
+    )
+    return any("广西团队" in value for value in values)
+
+
 def _project_result(project: dict[str, Any], slides: list[dict[str, Any]], issues: list[dict[str, Any]], source_kind: str) -> dict[str, Any]:
     current = _merge_section_blocks(item.get("current") for item in slides)
     next_plan = _merge_section_blocks(item.get("next") for item in slides)
@@ -1006,6 +1039,11 @@ def process_weekly_report(
         _notify(progress_callback, "审核项目周报", 12 + round(index / max(len(presentation_sources), 1) * 52), f"已审核 {index} / {len(presentation_sources)} 个文件")
 
     all_slides = [slide for parsed in parsed_files for slide in parsed["slides"]]
+    meeting_only_keys = {
+        slide["project_key"]
+        for slide in all_slides
+        if slide.get("project_key") and _is_meeting_only_slide(slide)
+    }
     by_key: dict[str, list[dict[str, Any]]] = {item["key"]: [] for item in expected}
     added_projects: dict[str, list[dict[str, Any]]] = {}
     for slide in all_slides:
@@ -1017,12 +1055,18 @@ def process_weekly_report(
             if not key:
                 all_issues.append({"severity": "warning", "code": "unmatched_slide", "label": "项目页未对应", "file": slide["file"], "slide": slide["slide"], "location": "标题区域", "project": "", "detail": "源项目页没有可识别的标题，无法自动添加。", "suggestion": "在页面顶部补充项目名称和汇报人。"})
                 continue
+            if _is_meeting_only_slide(slide):
+                meeting_only_keys.add(key)
             added_projects.setdefault(key, []).append(slide)
 
     for project in expected:
+        if project["key"] in meeting_only_keys:
+            continue
         all_issues.extend(_audit_project_pages(project, by_key.get(project["key"], [])))
 
     for project in deck_projects:
+        if project["key"] in meeting_only_keys:
+            continue
         if by_key.get(project["key"]):
             continue
         all_issues.append({
@@ -1033,6 +1077,7 @@ def process_weekly_report(
         })
 
     deck_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "项目周报") for item in deck_projects]
+    deck_results = [item for item in deck_results if item["key"] not in meeting_only_keys]
     deck_keys = {item["key"] for item in deck_projects}
     for item in meeting_projects:
         slides = by_key.get(item["key"], [])
@@ -1049,6 +1094,8 @@ def process_weekly_report(
         deck_results.append(_project_result(project, slides, all_issues, "周例会模板项目"))
     added_results = []
     for key, slides in added_projects.items():
+        if key in meeting_only_keys:
+            continue
         title = next((item["title"] for item in slides if item["title"]), key)
         reporter = next((item["reporter"] for item in slides if item["reporter"]), "")
         project = {
@@ -1061,8 +1108,30 @@ def process_weekly_report(
         all_issues.append({"severity": "info", "code": "project_auto_added", "label": "新增项目已加入", "file": "、".join(sorted({item["file"] for item in slides})), "slide": 0, "location": "总周报", "project": title, "detail": f"未配置在内置模板中的项目“{title}”已自动追加到总周报 PPT。", "suggestion": "如需将该项目同步到周例会 DOCX，请在周例会模板中增加对应项目条目。"})
         added_results.append(_project_result(project, slides, all_issues, "自动添加项目"))
     deck_results.extend(added_results)
+    deck_results = [project for project in deck_results if not _is_meeting_only_project(project)]
     meeting_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "周例会") for item in meeting_projects]
     meeting_results.extend({**item, "source_kind": "自动添加项目"} for item in added_results)
+    meeting_result_keys = {item["key"] for item in meeting_results}
+    for key in sorted(meeting_only_keys - meeting_result_keys):
+        slides = by_key.get(key, [])
+        if not slides:
+            continue
+        project = {
+            "id": f"meeting_only_{len(meeting_results) + 1}",
+            "key": key,
+            "title": next((slide["title"] for slide in slides if slide.get("title")), key),
+            "reporter": next((slide["reporter"] for slide in slides if slide.get("reporter")), ""),
+            "template_slide": None,
+        }
+        meeting_results.append(_project_result(project, slides, all_issues, "周例会"))
+    for project in meeting_results:
+        if _is_guangxi_project(project):
+            project["reporter"] = "郑乐园"
+    meeting_result_keys = {item["key"] for item in meeting_results}
+    for project in list(parsed_files):
+        for slide in project.get("slides", []):
+            if _is_meeting_only_slide(slide):
+                meeting_only_keys.add(slide.get("project_key", ""))
     for project in deck_results + meeting_results:
         if len(project["source_files"]) > 1:
             all_issues.append({"severity": "warning", "code": "multiple_sources", "label": "多个源文件合并", "file": "、".join(project["source_files"]), "slide": 0, "location": project["title"], "project": project["title"], "detail": "同一项目来自多个周报文件，系统按源文件和页码顺序合并。", "suggestion": "确认这些文件是否是同一项目的不同内容页。"})
@@ -3361,6 +3430,8 @@ def build_weekly_presentation(
         })
 
     for project in result["projects"]:
+        if _is_meeting_only_project(project):
+            continue
         template_slide = style_slides.get(project["key"])
         title_reference = _project_title_shape(template_slide) if template_slide is not None else default_title_reference
         if not project["slides"]:
