@@ -1556,7 +1556,7 @@ def _process_weekly_job(job_id: str) -> None:
         on_progress({"stage": "整合总周报", "percent": 91, "detail": f"正在生成 {ppt_target.name}"})
         build_weekly_presentation(result, source_lookup, ppt_target, progress_callback=on_progress)
         on_progress({"stage": "生成周例会", "percent": 96, "detail": f"正在填充 {word_target.name}"})
-        build_weekly_meeting_document(result, word_target)
+        build_weekly_meeting_document(result, word_target, progress_callback=on_progress)
         export_weekly_report_xlsx(result, report_target)
         with zipfile.ZipFile(zip_target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(ppt_target, ppt_target.name)

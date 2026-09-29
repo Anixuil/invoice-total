@@ -10,11 +10,15 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+import math
+import os
 import re
+import tempfile
 import unicodedata
 from typing import Any, Callable
 
 from docx import Document
+from docx.oxml import OxmlElement as WordElement
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from openpyxl import Workbook
@@ -602,15 +606,33 @@ def _audit_shape_bounds(entries: list[dict[str, Any]], width: int, height: int, 
 
 def parse_presentation_source(path: str | Path, display_name: str, expected: list[dict[str, Any]]) -> dict[str, Any]:
     presentation = Presentation(path)
+    slide_entries = [_flatten_shapes(slide.shapes) for slide in presentation.slides]
+    # 文件名或封面标识整份汇报；没有标识时，从各页标题推断唯一归属。
+    # 广西员工评价、测试页自身通常不包含“广西团队”。
+    cover_texts = [entry["text"] for entry in slide_entries[0]] if slide_entries else []
+    source_identity = _meeting_only_identity(Path(display_name.replace("\\", "/")).name, *cover_texts)
+    if not source_identity:
+        identities = {_meeting_only_identity(*_slide_title(entries)[:2]) for entries in slide_entries}
+        identities.discard("")
+        if len(identities) == 1:
+            source_identity = identities.pop()
     width, height = int(presentation.slide_width), int(presentation.slide_height)
     template_width, template_height = _template_dimensions()
     issues = []
-    if (width, height) != (template_width, template_height):
+    if not source_identity and (width, height) != (template_width, template_height):
         issues.append({"severity": "error", "code": "slide_size", "label": "页面尺寸不一致", "file": display_name, "slide": 0, "location": "整份 PPT", "project": "", "detail": f"当前尺寸 {width}x{height}，模板尺寸 {template_width}x{template_height}。", "suggestion": "使用部门项目周报模板的宽高。"})
     slides = []
     slide_count = len(presentation.slides)
     for slide_number, slide in enumerate(presentation.slides, start=1):
-        entries = _flatten_shapes(slide.shapes)
+        entries = slide_entries[slide_number - 1]
+        identity = source_identity or _meeting_only_identity(*_slide_title(entries)[:2])
+        if identity:
+            # 会议专用汇报的评价/实操标签也可能位于左侧，不能套用右栏限制。
+            for entry in entries:
+                label = re.sub(r"\s+", "", entry["text"]).rstrip("：:")
+                if label in {"评价等级", "实操安排"}:
+                    entry["section_key"] = _supplementary_key(label)
+                    entry["section_label"] = label
         texts = [entry["text"] for entry in entries if entry["text"]]
         has_sections = any(_entry_section_key(entry) for entry in entries)
         # 结束页可能包含模板残留文本，不能仅依赖“无内容字段”判断，
@@ -632,8 +654,12 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
         best_score, best_mode, best_project = scores[0] if scores else (0, "none", {"key": "", "title": ""})
         if best_score < 0.58:
             best_project = {"key": "", "title": ""}
+        if identity:
+            meeting_title, reporter = MEETING_ONLY_PROJECTS[identity]
+            best_project = {"key": _canonical_title(meeting_title), "title": meeting_title}
+            best_score, best_mode = 1.0, "exact"
         project_title = best_project.get("title", "")
-        if (best_mode in {"alias", "similar"} or title_mode == "inferred") and project_title:
+        if not identity and (best_mode in {"alias", "similar"} or title_mode == "inferred") and project_title:
             issues.append({"severity": "warning", "code": "title_alias", "label": "标题需确认", "file": display_name, "slide": slide_number, "location": f"对象 {next((e['path'] for e in entries if e['text'] == title), '标题区域')}", "project": project_title, "detail": f"源标题“{title}”按别名或相似规则对应“{project_title}”。", "suggestion": "确认该页确实属于对应项目。"})
         embedded_packages = _embedded_package_relationships(slide)
         if embedded_packages:
@@ -683,7 +709,24 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
             "next": _normalized_section_content(_section_from_entries(entries, "next")),
             "issues": _merge_section_blocks(item["content"] for item in supplementary if item["kind"] == "issue"),
         })
-        issues.extend(_audit_shape_bounds(entries, width, height, display_name, slide_number, project_title))
+        if not identity:
+            issues.extend(_audit_shape_bounds(entries, width, height, display_name, slide_number, project_title))
+        meeting_sections = []
+        if identity:
+            section_keys = dict.fromkeys(
+                key for entry in sorted(entries, key=lambda item: (item["top"], item["left"]))
+                if (key := _entry_section_key(entry))
+            )
+            for key in section_keys:
+                label = next(entry["section_label"] for entry in entries if _entry_section_key(entry) == key)
+                meeting_sections.append({
+                    "key": key, "title": label or _section_title(key),
+                    "kind": "issue" if _section_is_issue(key) else "normal",
+                    "content": section_values.get(key, _section_from_entries(entries, key)),
+                })
+            for section in supplementary:
+                if _supplementary_key(section["title"], section["kind"]) not in section_keys:
+                    meeting_sections.append(section)
         slides.append({
             "id": f"{display_name}#{slide_number}", "file": display_name, "slide": slide_number,
             "title": title, "reporter": reporter, "title_mode": title_mode,
@@ -691,6 +734,7 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
             "project_title": project_title, "score": round(best_score, 3),
             "current": section_values["current"], "next": section_values["next"], "issues": section_values["issues"],
             "supplementary_sections": supplementary,
+            "meeting_only": identity, "meeting_sections": meeting_sections,
             "section_presence": {
                 section_key: any(
                     _section_is_issue(_entry_section_key(entry)) if section_key == "issues"
@@ -953,37 +997,32 @@ def _is_generated_artifact(display_name: str) -> bool:
     return bool(re.match(r"^(项目周报|部门周例会)\s*\d", stem))
 
 
-def _is_meeting_only_slide(slide: dict[str, Any]) -> bool:
-    """Reserve Zhang Keke and Guangxi team reports for the meeting document."""
-    values = (
-        _text(slide.get("reporter", "")),
-        _text(slide.get("title", "")),
-        _text(slide.get("project_title", "")),
-        _text(slide.get("file", "")),
+MEETING_ONLY_PROJECTS = {
+    "market": ("本周市场工作成果与计划", "张珂珂"),
+    "guangxi": ("广西团队", "郑乐园"),
+}
+
+
+def _meeting_only_identity(*values: str) -> str:
+    compact = [re.sub(r"\s+", "", _text(value)) for value in values]
+    if any("广西团队" in value for value in compact):
+        return "guangxi"
+    if any("张珂珂" in value or "市场工作成果与计划" in value for value in compact):
+        return "market"
+    return ""
+
+
+def _meeting_slide_identity(slide: dict[str, Any]) -> str:
+    return slide.get("meeting_only") or _meeting_only_identity(
+        slide.get("reporter", ""), slide.get("title", ""), slide.get("project_title", ""),
+        Path(_text(slide.get("file")).replace("\\", "/")).name,
     )
-    return any("张珂珂" in value or "广西团队" in value for value in values)
 
 
 def _is_meeting_only_project(project: dict[str, Any]) -> bool:
-    values = (
-        _text(project.get("reporter", "")),
-        _text(project.get("title", "")),
-        _text(project.get("key", "")),
-        *(_text(item.get("reporter", "")) for item in project.get("slides", [])),
-        *(_text(item.get("title", "")) for item in project.get("slides", [])),
-        *(_text(item.get("file", "")) for item in project.get("slides", [])),
-    )
-    return any("张珂珂" in value or "广西团队" in value for value in values)
-
-
-def _is_guangxi_project(project: dict[str, Any]) -> bool:
-    values = (
-        _text(project.get("title", "")),
-        _text(project.get("key", "")),
-        *(_text(item.get("title", "")) for item in project.get("slides", [])),
-        *(_text(item.get("file", "")) for item in project.get("slides", [])),
-    )
-    return any("广西团队" in value for value in values)
+    return bool(_meeting_only_identity(project.get("reporter", ""), project.get("title", ""),
+                                       project.get("key", ""))
+                or any(_meeting_slide_identity(slide) for slide in project.get("slides", [])))
 
 
 def _project_result(project: dict[str, Any], slides: list[dict[str, Any]], issues: list[dict[str, Any]], source_kind: str) -> dict[str, Any]:
@@ -1039,14 +1078,17 @@ def process_weekly_report(
         _notify(progress_callback, "审核项目周报", 12 + round(index / max(len(presentation_sources), 1) * 52), f"已审核 {index} / {len(presentation_sources)} 个文件")
 
     all_slides = [slide for parsed in parsed_files for slide in parsed["slides"]]
-    meeting_only_keys = {
-        slide["project_key"]
-        for slide in all_slides
-        if slide.get("project_key") and _is_meeting_only_slide(slide)
-    }
+    meeting_only_slides: dict[str, list[dict[str, Any]]] = {}
+    meeting_only_keys = {item["key"] for item in expected if _is_meeting_only_project(item)}
+    meeting_only_keys.update(_canonical_title(title) for title, _ in MEETING_ONLY_PROJECTS.values())
     by_key: dict[str, list[dict[str, Any]]] = {item["key"]: [] for item in expected}
     added_projects: dict[str, list[dict[str, Any]]] = {}
     for slide in all_slides:
+        identity = _meeting_slide_identity(slide)
+        if identity:
+            # 先分流，避免未匹配模板的页面丢失，或同名普通项目被整组排除。
+            meeting_only_slides.setdefault(identity, []).append(slide)
+            continue
         if slide["project_key"]:
             by_key.setdefault(slide["project_key"], []).append(slide)
         else:
@@ -1055,8 +1097,6 @@ def process_weekly_report(
             if not key:
                 all_issues.append({"severity": "warning", "code": "unmatched_slide", "label": "项目页未对应", "file": slide["file"], "slide": slide["slide"], "location": "标题区域", "project": "", "detail": "源项目页没有可识别的标题，无法自动添加。", "suggestion": "在页面顶部补充项目名称和汇报人。"})
                 continue
-            if _is_meeting_only_slide(slide):
-                meeting_only_keys.add(key)
             added_projects.setdefault(key, []).append(slide)
 
     for project in expected:
@@ -1080,6 +1120,8 @@ def process_weekly_report(
     deck_results = [item for item in deck_results if item["key"] not in meeting_only_keys]
     deck_keys = {item["key"] for item in deck_projects}
     for item in meeting_projects:
+        if item["key"] in meeting_only_keys:
+            continue
         slides = by_key.get(item["key"], [])
         if item["key"] in deck_keys or not slides:
             continue
@@ -1109,29 +1151,26 @@ def process_weekly_report(
         added_results.append(_project_result(project, slides, all_issues, "自动添加项目"))
     deck_results.extend(added_results)
     deck_results = [project for project in deck_results if not _is_meeting_only_project(project)]
-    meeting_results = [_project_result(item, by_key.get(item["key"], []), all_issues, "周例会") for item in meeting_projects]
+    meeting_results = []
+    remaining_meeting_slides = dict(meeting_only_slides)
+    for item in meeting_projects:
+        identity = _meeting_only_identity(item["title"], item["reporter"])
+        slides = remaining_meeting_slides.pop(identity, []) if identity else by_key.get(item["key"], [])
+        project = _project_result(item, slides, all_issues, "周例会")
+        if identity:
+            project["title"], project["reporter"] = MEETING_ONLY_PROJECTS[identity]
+            project["meeting_only"] = identity
+        meeting_results.append(project)
     meeting_results.extend({**item, "source_kind": "自动添加项目"} for item in added_results)
-    meeting_result_keys = {item["key"] for item in meeting_results}
-    for key in sorted(meeting_only_keys - meeting_result_keys):
-        slides = by_key.get(key, [])
-        if not slides:
-            continue
+    for identity, slides in remaining_meeting_slides.items():
+        title, reporter = MEETING_ONLY_PROJECTS[identity]
         project = {
             "id": f"meeting_only_{len(meeting_results) + 1}",
-            "key": key,
-            "title": next((slide["title"] for slide in slides if slide.get("title")), key),
-            "reporter": next((slide["reporter"] for slide in slides if slide.get("reporter")), ""),
+            "key": _canonical_title(title), "title": title, "reporter": reporter,
             "template_slide": None,
         }
-        meeting_results.append(_project_result(project, slides, all_issues, "周例会"))
-    for project in meeting_results:
-        if _is_guangxi_project(project):
-            project["reporter"] = "郑乐园"
-    meeting_result_keys = {item["key"] for item in meeting_results}
-    for project in list(parsed_files):
-        for slide in project.get("slides", []):
-            if _is_meeting_only_slide(slide):
-                meeting_only_keys.add(slide.get("project_key", ""))
+        meeting_results.append({**_project_result(project, slides, all_issues, "周例会"),
+                                "reporter": reporter, "meeting_only": identity})
     for project in deck_results + meeting_results:
         if len(project["source_files"]) > 1:
             all_issues.append({"severity": "warning", "code": "multiple_sources", "label": "多个源文件合并", "file": "、".join(project["source_files"]), "slide": 0, "location": project["title"], "project": project["title"], "detail": "同一项目来自多个周报文件，系统按源文件和页码顺序合并。", "suggestion": "确认这些文件是否是同一项目的不同内容页。"})
@@ -3674,7 +3713,20 @@ def _meeting_bullet_value(value: str) -> str:
     return f"\u00b7 {clean}" if clean else "\u00b7 "
 
 
-def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, template: str | Path = DOCX_TEMPLATE) -> None:
+def _meeting_heading_number(number: int) -> str:
+    digits = "零一二三四五六七八九"
+    if number < 10:
+        return digits[number]
+    if number < 100:
+        tens, units = divmod(number, 10)
+        return (digits[tens] if tens > 1 else "") + "十" + (digits[units] if units else "")
+    return str(number)
+
+
+def build_weekly_meeting_document(
+    result: dict[str, Any], target: str | Path, template: str | Path = DOCX_TEMPLATE,
+    progress_callback: ProgressCallback = None,
+) -> None:
     """在部门周例会模板中填充项目进度、计划及源文件实际补充栏目。"""
     document = Document(template)
     date_cell = _meeting_date_cell(document)
@@ -3720,15 +3772,50 @@ def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, te
     tc = cell._tc
     for paragraph in list(cell.paragraphs):
         _remove_element(paragraph._p)
-    for project in result["meeting_projects"]:
+
+    def append_meeting_block(section: dict[str, Any], *, overview: bool) -> None:
+        key = section.get("key") or _supplementary_key(section["title"], section.get("kind", "normal"))
+        title = section["title"].rstrip("：:") + "："
+        if overview and key == "current":
+            title = "本周工作完成情况："
+        elif overview and key == "issues":
+            title = "本周问题："
+        color = "FF0000" if section.get("kind") == "issue" else "000000"
+        label_template = label_templates.get(key) or label_templates.get("current") or bullet_template
+        tc.append(_paragraph_copy(label_template, title, color, bold=True, keep_with_next=True))
+        for value in _normalized_section_content(section.get("content")).splitlines():
+            if value.strip():
+                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), color,
+                                          first_line_chars=2, keep_with_next=False))
+        tc.append(_paragraph_copy(blank_template, "", keep_with_next=False))
+
+    for project_index, project in enumerate(result["meeting_projects"], start=1):
         heading = heading_by_key.get(project["key"])
-        heading_template = heading or headings[0]
+        heading_template = heading or (headings[0] if headings else bullet_template)
         heading_text = _text(heading.text) if heading else f"{project['title']}（汇报人：{project['reporter'] or '待补充'}）"
+        identity = project.get("meeting_only")
+        if identity:
+            heading_text = f"{_meeting_heading_number(project_index)}、{project['title']}（汇报人：{project['reporter']}）"
         tc.append(_paragraph_copy(heading_template, heading_text))
+        if identity == "guangxi" and project["slides"]:
+            # 按源页保留总体情况、员工评价、实操安排和测试子节，避免把不同页
+            # 的“本周进度”与“评价等级”各自汇总后丢失人员与栏目之间的关系。
+            for slide in project["slides"]:
+                overview = "广西团队" in re.sub(r"\s+", "", slide["title"])
+                if not overview:
+                    tc.append(normal_paragraph(bullet_template, slide["title"], heading=True))
+                sections = slide.get("meeting_sections")
+                if not sections:
+                    sections = [{"key": key, **section} for key, section in _output_sections(slide).items()
+                                if key not in {"current", "next"} or slide.get("section_presence", {}).get(key, True)]
+                for section in sections:
+                    append_meeting_block(section, overview=overview)
+            continue
         for key in ("current", "next"):
             label_template = label_templates.get(key) or bullet_template
             # 小节名只跟随后面的首段；正文沿用参考文档的自然跨页设置。
-            tc.append(_paragraph_copy(label_template, SECTION_DISPLAY[key], bold=True, keep_with_next=True))
+            label_text = "本周工作完成情况：" if identity and key == "current" else SECTION_DISPLAY[key]
+            tc.append(_paragraph_copy(label_template, label_text, bold=True, keep_with_next=True))
             values = [line for line in _normalized_section_content(project.get(key)).splitlines() if line.strip()]
             for value in values:
                 tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value),
@@ -3754,6 +3841,265 @@ def build_weekly_meeting_document(result: dict[str, Any], target: str | Path, te
     _set_meeting_body_size(cell)
     _set_document_font(document)
     document.save(target)
+    _notify(progress_callback, "调整周例会末页表格", 97, "正在按文字和页面尺寸估算补齐高度，导出后请人工核验")
+    _extend_meeting_table(result, Path(target))
+
+
+def _meeting_paragraph_format(paragraph, name: str, default=None):
+    value = getattr(paragraph.paragraph_format, name)
+    if value is not None:
+        return value
+    style = paragraph.style
+    seen = set()
+    while style is not None and style.style_id not in seen:
+        seen.add(style.style_id)
+        value = getattr(style.paragraph_format, name)
+        if value is not None:
+            return value
+        style = style.base_style
+    return default
+
+
+def _estimate_meeting_paragraph(paragraph, width: float, grid_pitch: float) -> list[float]:
+    """按中西文字符宽度估算换行；不是 Word/WPS 的实际分页结果。"""
+    if paragraph._p.xpath(".//w:drawing | .//w:pict | .//w:br[@w:type='page']"):
+        raise ValueError("正文包含图片或手动分页，请人工调整末页")
+    font_size = MEETING_BODY_FONT_SIZE
+    style = paragraph.style
+    seen = set()
+    while style is not None and style.style_id not in seen:
+        seen.add(style.style_id)
+        if style.font.size is not None:
+            font_size = style.font.size.pt
+            break
+        style = style.base_style
+    font_size = max((run.font.size.pt if run.font.size is not None else font_size
+                     for run in paragraph.runs), default=font_size)
+    left = _meeting_paragraph_format(paragraph, "left_indent", 0) / 12700
+    right = _meeting_paragraph_format(paragraph, "right_indent", 0) / 12700
+    first = _meeting_paragraph_format(paragraph, "first_line_indent", 0) / 12700
+    ind = paragraph._p.find("./" + qn("w:pPr") + "/" + qn("w:ind"))
+    if ind is not None:
+        for attribute, target in (("leftChars", "left"), ("rightChars", "right"), ("firstLineChars", "first")):
+            value = ind.get(qn(f"w:{attribute}"))
+            if value is not None:
+                amount = int(value) / 100 * font_size
+                if target == "left":
+                    left = amount
+                elif target == "right":
+                    right = amount
+                else:
+                    first = amount
+    usable = width - left - right
+    if usable <= font_size or usable - first <= 0:
+        raise ValueError("正文列宽不足，无法估算换行")
+    line_count, used, capacity = 1, 0.0, usable - first
+    for char in paragraph.text:
+        if char in "\n\r":
+            line_count += 1
+            used, capacity = 0.0, usable
+            continue
+        char_width = font_size * (2 if char == "\t" else 1 if unicodedata.east_asian_width(char) in {"W", "F", "A"}
+                                  else 0.33 if char.isspace() else 0.55)
+        if used + char_width > capacity:
+            line_count += 1
+            used, capacity = 0.0, usable
+        used += char_width
+    spacing = _meeting_paragraph_format(paragraph, "line_spacing")
+    if spacing is None:
+        line_height = font_size * 1.2
+    elif isinstance(spacing, float):
+        line_height = font_size * 1.2 * spacing
+    else:
+        line_height = spacing / 12700
+        # EXACTLY=4；最小行距仍需容纳当前字号。
+        if _meeting_paragraph_format(paragraph, "line_spacing_rule") != 4:
+            line_height = max(line_height, font_size * 1.2)
+    snap = paragraph._p.find("./" + qn("w:pPr") + "/" + qn("w:snapToGrid"))
+    if grid_pitch and (snap is None or snap.get(qn("w:val"), "1") not in {"0", "false", "off"}):
+        line_height = math.ceil(line_height / grid_pitch) * grid_pitch
+    before = _meeting_paragraph_format(paragraph, "space_before", 0) / 12700
+    after = _meeting_paragraph_format(paragraph, "space_after", 0) / 12700
+    lines = [line_height] * line_count
+    lines[0] += before
+    lines[-1] += after
+    return lines
+
+
+def _estimate_meeting_extension(document: Document) -> float:
+    if len(document.sections) != 1:
+        raise ValueError("多分节文档不适用简单分页估算")
+    section = document.sections[0]
+    page_height = (section.page_height - section.top_margin - section.bottom_margin) / 12700
+    page_width = (section.page_width - section.left_margin - section.right_margin) / 12700
+    grid = section._sectPr.find(qn("w:docGrid"))
+    grid_pitch = (int(grid.get(qn("w:linePitch"), "0")) / 20
+                  if grid is not None and grid.get(qn("w:type")) in {"lines", "linesAndChars"} else 0)
+    meeting_table = _meeting_cell(document)._tc.getparent().getparent()
+    position = 0.0
+
+    def add_lines(lines, keep=False, new_page=False):
+        nonlocal position
+        if new_page:
+            position = 0.0
+        if keep and sum(lines) <= page_height and position + sum(lines) > page_height:
+            position = 0.0
+        for height in lines:
+            if height > page_height:
+                raise ValueError("段落高度超过正文区域")
+            if position + height > page_height:
+                position = 0.0
+            position += height
+
+    for element in document.element.body:
+        if element.tag == qn("w:p"):
+            paragraph = Paragraph(element, document)
+            add_lines(_estimate_meeting_paragraph(paragraph, page_width, grid_pitch),
+                      _meeting_paragraph_format(paragraph, "keep_together", False),
+                      _meeting_paragraph_format(paragraph, "page_break_before", False))
+        elif element.tag == qn("w:tbl"):
+            table = Table(element, document)
+            for row in table.rows:
+                columns = []
+                for cell in _unique_cells(row):
+                    if cell.tables or cell.width is None:
+                        raise ValueError("嵌套表格或缺少列宽，无法估算")
+                    # Word 默认左右单元格边距为 108 twip；优先读取显式设置。
+                    margins = {}
+                    for parent, tag in ((table._tbl.tblPr, "tblCellMar"), (cell._tc.tcPr, "tcMar")):
+                        node = parent.find(qn(f"w:{tag}")) if parent is not None else None
+                        if node is not None:
+                            for edge in node:
+                                if edge.get(qn("w:type"), "dxa") == "dxa":
+                                    margins[edge.tag.split("}")[-1]] = int(edge.get(qn("w:w"), "0")) / 20
+                    width = cell.width / 12700 - margins.get("left", 5.4) - margins.get("right", 5.4)
+                    blocks = [(_estimate_meeting_paragraph(p, width, grid_pitch),
+                               _meeting_paragraph_format(p, "keep_together", False),
+                               _meeting_paragraph_format(p, "page_break_before", False),
+                               _meeting_paragraph_format(p, "keep_with_next", False)) for p in cell.paragraphs]
+                    blocks.insert(0, ([margins.get("top", 0)], False, False, False))
+                    blocks.append(([margins.get("bottom", 0)], False, False, False))
+                    columns.append(blocks)
+                blocks = max(columns, key=lambda items: sum(sum(block[0]) for block in items))
+                total = sum(sum(block[0]) for block in blocks)
+                if row.height_rule == 2:  # EXACTLY
+                    add_lines([row.height.pt] if row.height else [total], keep=True)
+                    continue
+                if row._tr.xpath("./w:trPr/w:tblHeader | ./w:trPr/w:cantSplit"):
+                    raise ValueError("重复表头或禁止跨页行需要人工确认分页")
+                for index, (lines, keep, new_page, keep_next) in enumerate(blocks):
+                    if keep_next and index + 1 < len(blocks):
+                        required = sum(lines) + blocks[index + 1][0][0]
+                        if required <= page_height and position + required > page_height:
+                            position = 0.0
+                    add_lines(lines, keep, new_page)
+                if row.height and row.height.pt > total:
+                    add_lines([row.height.pt - total])
+            if element is meeting_table:
+                # 留出一行误差余量及表格后的必要空段落，避免估算恰好触底。
+                return max(0.0, page_height - position - max(grid_pitch, 14.4) - 6)
+    raise ValueError("未找到会议表格")
+
+
+def _word_child(parent, name: str):
+    child = parent.find(qn(f"w:{name}"))
+    if child is None:
+        child = WordElement(f"w:{name}")
+        parent.append(child)
+    return child
+
+
+def _append_meeting_extension(document: Document, height: float) -> None:
+    cell = _meeting_cell(document)
+    row = cell._tc.getparent()
+    table = row.getparent()
+    if row is not table.findall(qn("w:tr"))[-1]:
+        raise ValueError("会议内容不是表格末行，无法安全延伸")
+    extension = deepcopy(row)
+    properties = extension.get_or_add_trPr()
+    for child in list(properties):
+        properties.remove(child)
+    _word_child(properties, "trHeight").set(qn("w:val"), str(round(height * 20)))
+    _word_child(properties, "trHeight").set(qn("w:hRule"), "exact")
+    _word_child(properties, "cantSplit")
+    table_borders = table.find("./" + qn("w:tblPr") + "/" + qn("w:tblBorders"))
+    for original, blank in zip(row.findall(qn("w:tc")), extension.findall(qn("w:tc"))):
+        original_properties = original.get_or_add_tcPr()
+        if original_properties.find(qn("w:vMerge")) is not None:
+            raise ValueError("末行包含纵向合并，无法安全延伸")
+        original_borders = _word_child(original_properties, "tcBorders")
+        bottom = original_borders.find(qn("w:bottom"))
+        if bottom is None and table_borders is not None:
+            bottom = table_borders.find(qn("w:bottom"))
+        saved_bottom = deepcopy(bottom) if bottom is not None else WordElement("w:bottom")
+        if bottom is None:
+            saved_bottom.set(qn("w:val"), "single")
+            saved_bottom.set(qn("w:sz"), "4")
+            saved_bottom.set(qn("w:color"), "000000")
+        _word_child(original_borders, "bottom").set(qn("w:val"), "nil")
+        blank_properties = blank.get_or_add_tcPr()
+        borders = _word_child(blank_properties, "tcBorders")
+        old_bottom = borders.find(qn("w:bottom"))
+        if old_bottom is not None:
+            borders.remove(old_bottom)
+        borders.append(saved_bottom)
+        _word_child(borders, "top").set(qn("w:val"), "nil")
+        margins = _word_child(blank_properties, "tcMar")
+        for edge in ("top", "bottom"):
+            margin = _word_child(margins, edge)
+            margin.set(qn("w:w"), "0")
+            margin.set(qn("w:type"), "dxa")
+        for child in list(blank):
+            if child is not blank_properties:
+                blank.remove(child)
+        paragraph = WordElement("w:p")
+        paragraph_properties = _word_child(paragraph, "pPr")
+        spacing = _word_child(paragraph_properties, "spacing")
+        for name, value in {"before": "0", "after": "0", "line": "20", "lineRule": "exact"}.items():
+            spacing.set(qn(f"w:{name}"), value)
+        for name in ("keepNext", "keepLines", "pageBreakBefore", "snapToGrid"):
+            _word_child(paragraph_properties, name).set(qn("w:val"), "0")
+        _word_child(_word_child(paragraph_properties, "rPr"), "sz").set(qn("w:val"), "2")
+        blank.append(paragraph)
+    table.append(extension)
+    # Word 表格后必须保留段落；仅收紧紧邻表格的空段落，不碰正文或分节。
+    following = table.getnext()
+    if (following is not None and following.tag == qn("w:p")
+            and not following.xpath(".//w:t | .//w:drawing | .//w:br | .//w:sectPr | .//w:fldChar")):
+        properties = following.get_or_add_pPr()
+        spacing = _word_child(properties, "spacing")
+        for name, value in {"before": "0", "after": "0", "line": "20", "lineRule": "exact"}.items():
+            spacing.set(qn(f"w:{name}"), value)
+        for name in ("keepNext", "keepLines", "pageBreakBefore", "snapToGrid"):
+            _word_child(properties, name).set(qn("w:val"), "0")
+
+
+def _extend_meeting_table(result: dict[str, Any], target: Path) -> None:
+    """纯 Python 估算后补齐；不声明真实分页已验证。"""
+    try:
+        document = Document(target)
+        height = _estimate_meeting_extension(document)
+        if height > 6:
+            _append_meeting_extension(document, height)
+            with tempfile.TemporaryDirectory(prefix="meeting-layout-", dir=target.parent) as scratch:
+                candidate = Path(scratch) / target.name
+                document.save(candidate)
+                os.replace(candidate, target)
+            detail = f"已按文字宽度、行距及纸张尺寸估算，追加约 {height / 72 * 25.4:.1f} 毫米的末页延伸行。"
+        else:
+            detail = "估算末页剩余空间不足，未追加延伸行。"
+        code, label = "meeting_table_manual_review", "末页排版需人工核验"
+        detail += " 未调用 Office 排版，实际分页可能与估算不同。"
+    except Exception as exc:
+        code, label = "meeting_table_extension_skipped", "末页表格未补齐"
+        detail = f"已保留原始文档，自动补齐未完成：{exc}"
+    result["issues"].append({
+        "severity": "warning", "code": code, "label": label,
+        "file": target.name, "slide": 0, "location": "周例会末页", "project": "",
+        "detail": detail,
+        "suggestion": "在 WPS/Word 中检查末页边框和是否新增空白页；如有偏差，调整末尾空白延伸行的高度，必要时删除该行。",
+    })
+    result["stats"]["warning_count"] = sum(item["severity"] == "warning" for item in result["issues"])
 
 
 def _excel_safe(value: Any) -> Any:
