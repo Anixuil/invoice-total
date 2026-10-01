@@ -1548,7 +1548,7 @@ def _process_weekly_job(job_id: str) -> None:
         directory = Path(job["directory"])
         source_lookup = {name: Path(path) for path, name in job["presentation_sources"]}
         output_stem = result["output_stem"]
-        suffix = output_stem.removeprefix("项目周报")
+        suffix = datetime.strptime(result["week_end"], "%Y-%m-%d").strftime("%m%d")
         ppt_target = directory / f"{output_stem}.pptx"
         word_target = directory / f"部门周例会{suffix}.docx"
         report_target = directory / f"{output_stem}-审核报告.xlsx"

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from functools import lru_cache
 from io import BytesIO
@@ -93,6 +93,9 @@ TITLE_ALIASES = {
     "K-Loghub日志平台": "五矿证券日志管理项目",
     "墨巡miciusops智能运维平台": "墨巡MiciusOps智能运维平台",
     "市场工作成果与计划": "本周市场工作成果与计划",
+    # 源周报使用简称，会议纪要模板使用完整栏目名。
+    "其他": "demo开发、客户交流、其他",
+    "其他工作": "demo开发、客户交流、其他",
 }
 
 
@@ -269,11 +272,9 @@ def _date_value(value: str) -> str:
     return f"{int(match.group(1)):04d}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
 
 
-def current_week_saturday() -> date:
-    """按周一至周日计算本周周六，周日仍归入刚结束的这一周。"""
-    today = date.today()
-    monday = today - timedelta(days=today.weekday())
-    return monday + timedelta(days=5)
+def current_report_date() -> date:
+    """按北京时间取生成当天，避免服务器时区改变报表日期。"""
+    return datetime.now(timezone(timedelta(hours=8))).date()
 
 
 def _unique_cells(row) -> list[Any]:
@@ -604,6 +605,38 @@ def _audit_shape_bounds(entries: list[dict[str, Any]], width: int, height: int, 
     return issues
 
 
+def _ppt_section_text_colors(entries: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """保留正文的 RGB 颜色及字符位置，供会议纪要匹配；不序列化 PPT 对象。"""
+    sections: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        shape = entry["shape"]
+        if not getattr(shape, "has_text_frame", False) or _entry_section_key(entry):
+            continue
+        key = _body_section_key(entries, entry)
+        if not key:
+            continue
+        for paragraph in shape.text_frame.paragraphs:
+            default = paragraph._p.find("./" + qn("a:pPr") + "/" + qn("a:defRPr") + "/" + qn("a:solidFill") + "/" + qn("a:srgbClr"))
+            default_color = default.get("val") if default is not None else None
+            text, colors = [], []
+            for child in paragraph._p:
+                if child.tag not in {qn("a:r"), qn("a:fld")}:
+                    continue
+                value = child.find(qn("a:t"))
+                if value is None:
+                    continue
+                fill = child.find("./" + qn("a:rPr") + "/" + qn("a:solidFill"))
+                rgb = fill.find(qn("a:srgbClr")) if fill is not None else None
+                color = rgb.get("val") if rgb is not None else (default_color if fill is None else None)
+                for character in value.text or "":
+                    if not character.isspace():
+                        text.append(character)
+                        colors.append(color)
+            if text and any(colors):
+                sections.setdefault(key, []).append({"text": "".join(text), "colors": colors})
+    return sections
+
+
 def parse_presentation_source(path: str | Path, display_name: str, expected: list[dict[str, Any]]) -> dict[str, Any]:
     presentation = Presentation(path)
     slide_entries = [_flatten_shapes(slide.shapes) for slide in presentation.slides]
@@ -655,7 +688,7 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
         if best_score < 0.58:
             best_project = {"key": "", "title": ""}
         if identity:
-            meeting_title, reporter = MEETING_ONLY_PROJECTS[identity]
+            meeting_title = MEETING_ONLY_PROJECTS[identity][0]
             best_project = {"key": _canonical_title(meeting_title), "title": meeting_title}
             best_score, best_mode = 1.0, "exact"
         project_title = best_project.get("title", "")
@@ -735,6 +768,7 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
             "current": section_values["current"], "next": section_values["next"], "issues": section_values["issues"],
             "supplementary_sections": supplementary,
             "meeting_only": identity, "meeting_sections": meeting_sections,
+            "text_colors": _ppt_section_text_colors(entries),
             "section_presence": {
                 section_key: any(
                     _section_is_issue(_entry_section_key(entry)) if section_key == "issues"
@@ -975,7 +1009,7 @@ def _audit_project_pages(project: dict[str, Any], slides: list[dict[str, Any]]) 
                 "severity": "warning", "code": "reporter_mismatch", "label": "汇报人不一致",
                 "file": file_label, "slide": 0, "location": "项目标题区域", "project": project["title"],
                 "detail": f"项目共 {page_count} 页，源文件汇报人为“{'、'.join(mismatched)}”，模板为“{expected_reporter}”。",
-                "suggestion": "以模板中的汇报人为准，并在审核结果确认。",
+                "suggestion": "会议纪要采用源文件中的汇报人，请确认源文件姓名是否准确。",
             })
 
     for section_key, section_label in SECTION_DISPLAY.items():
@@ -1158,7 +1192,7 @@ def process_weekly_report(
         slides = remaining_meeting_slides.pop(identity, []) if identity else by_key.get(item["key"], [])
         project = _project_result(item, slides, all_issues, "周例会")
         if identity:
-            project["title"], project["reporter"] = MEETING_ONLY_PROJECTS[identity]
+            project["title"] = MEETING_ONLY_PROJECTS[identity][0]
             project["meeting_only"] = identity
         meeting_results.append(project)
     meeting_results.extend({**item, "source_kind": "自动添加项目"} for item in added_results)
@@ -1170,7 +1204,14 @@ def process_weekly_report(
             "template_slide": None,
         }
         meeting_results.append({**_project_result(project, slides, all_issues, "周例会"),
-                                "reporter": reporter, "meeting_only": identity})
+                                "meeting_only": identity})
+    for project in meeting_results:
+        # 会议纪要只使用源文件姓名，不回退到模板或专用汇报的固定姓名。
+        reporters = dict.fromkeys(
+            _text(slide.get("reporter")) for slide in project["slides"]
+            if _text(slide.get("reporter"))
+        )
+        project["reporter"] = "、".join(reporters)
     for project in deck_results + meeting_results:
         if len(project["source_files"]) > 1:
             all_issues.append({"severity": "warning", "code": "multiple_sources", "label": "多个源文件合并", "file": "、".join(project["source_files"]), "slide": 0, "location": project["title"], "project": project["title"], "detail": "同一项目来自多个周报文件，系统按源文件和页码顺序合并。", "suggestion": "确认这些文件是否是同一项目的不同内容页。"})
@@ -1179,14 +1220,16 @@ def process_weekly_report(
         if parsed["file"] and not parsed["slides"] and not _is_generated_artifact(parsed["file"]):
             all_issues.append({"severity": "warning", "code": "no_project_slides", "label": "未识别项目页", "file": parsed["file"], "slide": 0, "location": "源文件", "project": "", "detail": "文件中没有识别到本周进度、下周计划或问题等周报字段。", "suggestion": "检查是否为封面、结束页或不符合模板的版式。"})
 
-    week_end = current_week_saturday()
+    week_end = current_report_date()
+    week_start = week_end - timedelta(days=week_end.weekday())
     error_count = sum(item["severity"] == "error" for item in all_issues)
     warning_count = sum(item["severity"] == "warning" for item in all_issues)
     project_count = len(deck_results)
     result = {
         "ok": True,
         "week_end": week_end.isoformat(),
-        "output_stem": f"项目周报{week_end:%m%d}",
+        "week_start": week_start.isoformat(),
+        "output_stem": f"项目周报 {week_start:%m%d}-{week_end:%m%d}",
         "stats": {
             "project_count": project_count,
             "matched_projects": sum(bool(item["slides"]) for item in deck_results),
@@ -1479,10 +1522,26 @@ def _set_ppt_run_font(run, font_name: str = PPT_BODY_FONT, bold: bool | None = N
         element.set("typeface", font_name)
 
 
+def _set_default_ppt_text_color(properties, color: RGBColor) -> None:
+    """仅补默认文字颜色，保留源段落及 run 中已有的颜色定义。"""
+    if any(child.tag.rsplit("}", 1)[-1] in {
+        "solidFill", "noFill", "gradFill", "blipFill", "pattFill", "grpFill"
+    } for child in properties):
+        return
+    fill = OxmlElement("a:solidFill")
+    rgb = OxmlElement("a:srgbClr")
+    rgb.set("val", str(color))
+    fill.append(rgb)
+    properties.insert_element_before(fill, "a:effectLst", "a:effectDag", "a:highlight", "a:uLnTx", "a:uLn",
+                                     "a:uFillTx", "a:uFill", "a:latin", "a:ea", "a:cs", "a:sym",
+                                     "a:hlinkClick", "a:hlinkMouseOver", "a:rtl", "a:extLst")
+
+
 def _set_project_body_font(shape, font_size: float, color: RGBColor | None = None) -> None:
     effective_color = color or RGBColor(0, 0, 0)
     preserve_hierarchy = _has_paragraph_hierarchy(shape)
     for paragraph in shape.text_frame.paragraphs:
+        _set_default_ppt_text_color(paragraph._p.get_or_add_pPr().get_or_add_defRPr(), effective_color)
         if not preserve_hierarchy:
             paragraph.alignment = PP_ALIGN.LEFT
             paragraph.level = 0
@@ -1490,7 +1549,6 @@ def _set_project_body_font(shape, font_size: float, color: RGBColor | None = Non
         for run in paragraph.runs:
             _set_ppt_run_font(run)
             run.font.size = Pt(font_size)
-            run.font.color.rgb = effective_color
 
 
 def _set_shape_text_color(shape, color: RGBColor) -> None:
@@ -1514,7 +1572,11 @@ def _apply_issue_text_color(slide, issue_text: str) -> None:
             continue
         if _entry_role(entry) == "body":
             body_key = _body_section_key(entries, entry)
-            _set_shape_text_color(shape, PPT_ISSUE_COLOR if _section_is_issue(body_key) else RGBColor(0, 0, 0))
+            for paragraph in shape.text_frame.paragraphs:
+                _set_default_ppt_text_color(
+                    paragraph._p.get_or_add_pPr().get_or_add_defRPr(),
+                    PPT_ISSUE_COLOR if _section_is_issue(body_key) else RGBColor(0, 0, 0),
+                )
 
 
 def _project_body_font_size(shape, *, preserve_paragraphs: bool = False) -> float:
@@ -2325,7 +2387,9 @@ def _format_flow_paragraph(paragraph, line_height: int, color: RGBColor, font_si
         properties.set("marR", "0")
     if properties.get("indent") is None:
         properties.set("indent", "0")
-    character_properties = [properties.find(qn("a:defRPr"))]
+    default_properties = properties.get_or_add_defRPr()
+    _set_default_ppt_text_color(default_properties, color)
+    character_properties = [default_properties]
     end_properties = paragraph._p.find(qn("a:endParaRPr"))
     if end_properties is None:
         end_properties = OxmlElement("a:endParaRPr")
@@ -2348,16 +2412,6 @@ def _format_flow_paragraph(paragraph, line_height: int, color: RGBColor, font_si
                 successors = tuple(f"a:{item}" for item in families[family_index + 1:])
                 properties.insert_element_before(font, *successors, "a:sym", "a:hlinkClick", "a:hlinkMouseOver", "a:rtl", "a:extLst")
             font.set("typeface", PPT_BODY_FONT)
-        for child in list(properties):
-            if child.tag.rsplit("}", 1)[-1] in {"solidFill", "noFill", "gradFill", "blipFill", "pattFill", "grpFill"}:
-                properties.remove(child)
-        fill = OxmlElement("a:solidFill")
-        rgb = OxmlElement("a:srgbClr")
-        rgb.set("val", str(color))
-        fill.append(rgb)
-        properties.insert_element_before(fill, "a:effectLst", "a:effectDag", "a:highlight", "a:uLnTx", "a:uLn",
-                                         "a:uFillTx", "a:uFill", "a:latin", "a:ea", "a:cs", "a:sym",
-                                         "a:hlinkClick", "a:hlinkMouseOver", "a:rtl", "a:extLst")
 
 
 def _flow_render_coordinates(fragment: dict[str, Any], geometry: dict[str, int]) -> dict[str, int]:
@@ -3378,25 +3432,21 @@ def build_weekly_presentation(
 ) -> None:
     """保留模板封面和结束页，短项目沿用原页，长项目按栏目单列续页。"""
     presentation = Presentation(template)
-    week_end = datetime.strptime(result["week_end"], "%Y-%m-%d").date()
-    cover_text = week_end.strftime("%Y年%m月%d日")
-    for shape in presentation.slides[0].shapes:
+    website_seen = False
+    for shape in _iter_shapes(presentation.slides[0].shapes):
         if not getattr(shape, "has_text_frame", False):
             continue
-        compact_text = re.sub(r"\s+", "", _text(shape.text)).lower()
-        if compact_text == COVER_WEBSITE:
-            for paragraph in shape.text_frame.paragraphs:
-                _clear_paragraph_runs(paragraph, "")
-            continue
-        if DATE_PATTERN.search(_text(shape.text)):
-            paragraph = shape.text_frame.paragraphs[0]
-            cover_value = DATE_PATTERN.sub(cover_text, _text(shape.text))
-            cover_value = re.sub(
-                rf"(?:\s*{re.escape(COVER_WEBSITE)}){{2,}}",
-                f" {COVER_WEBSITE}",
-                cover_value,
-            )
-            _clear_paragraph_runs(paragraph, cover_value.strip())
+        # 按段落处理，避免把整个文本框的网址复制进公司名称所在段落。
+        for paragraph in shape.text_frame.paragraphs:
+            original = paragraph.text
+            cover_value = re.sub(rf"[ \t]*[·•]?[ \t]*{DATE_PATTERN.pattern}", "", original)
+            compact_text = re.sub(r"\s+", "", cover_value).lower()
+            if compact_text == COVER_WEBSITE:
+                if website_seen:
+                    cover_value = ""
+                website_seen = True
+            if cover_value != original:
+                _clear_paragraph_runs(paragraph, cover_value.strip())
 
     placeholder_numbers = sorted(_project_slide_numbers(presentation), reverse=True)
     placeholder_slides = [presentation.slides[slide_number - 1] for slide_number in placeholder_numbers]
@@ -3669,6 +3719,62 @@ def _paragraph_copy(
     return paragraph
 
 
+def _apply_meeting_source_colors(paragraph, value: str, key: str, slides: list[dict[str, Any]]):
+    """按栏目和完整正文匹配颜色，只拆分文字 run，保留 Word 段落格式。"""
+    needle = re.sub(r"\s+", "", _clean_line(value))
+    if not needle:
+        return paragraph
+    matched = None
+    for slide in slides:
+        for record in slide.get("text_colors", {}).get(key, []):
+            offset = record["text"].find(needle)
+            if offset >= 0:
+                matched = record["colors"][offset:offset + len(needle)]
+                break
+        if matched is not None:
+            break
+    if matched is None or not any(matched):
+        return paragraph
+    runs = list(paragraph.xpath("./w:r"))
+    text = "".join(node.text or "" for run in runs for node in run.findall(qn("w:t")))
+    positions = [index for index, character in enumerate(text) if not character.isspace()]
+    offset = "".join(text[index] for index in positions).find(needle)
+    if offset < 0:
+        return paragraph
+    colors = {positions[offset + index]: color for index, color in enumerate(matched) if color}
+    cursor = 0
+    for run in runs:
+        # _paragraph_copy 生成的正文为普通文本；不拆分图片、域或换行对象。
+        if any(child.tag not in {qn("w:rPr"), qn("w:t")} for child in run):
+            return paragraph
+    for run in runs:
+        value = "".join(node.text or "" for node in run.findall(qn("w:t")))
+        start = 0
+        while start < len(value):
+            color = colors.get(cursor + start)
+            end = start + 1
+            while end < len(value) and colors.get(cursor + end) == color:
+                end += 1
+            fragment = deepcopy(run)
+            for node in list(fragment):
+                if node.tag != qn("w:rPr"):
+                    fragment.remove(node)
+            node = WordElement("w:t")
+            node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            node.text = value[start:end]
+            fragment.append(node)
+            if color:
+                properties = fragment.get_or_add_rPr()
+                element = properties.get_or_add_color()
+                element.attrib.clear()
+                element.set(qn("w:val"), color)
+            run.addprevious(fragment)
+            start = end
+        cursor += len(value)
+        paragraph.remove(run)
+    return paragraph
+
+
 WORD_FONT = "宋体"
 MEETING_BODY_FONT_SIZE = 12  # 小四
 
@@ -3773,7 +3879,7 @@ def build_weekly_meeting_document(
     for paragraph in list(cell.paragraphs):
         _remove_element(paragraph._p)
 
-    def append_meeting_block(section: dict[str, Any], *, overview: bool) -> None:
+    def append_meeting_block(section: dict[str, Any], *, overview: bool, source_slide: dict[str, Any]) -> None:
         key = section.get("key") or _supplementary_key(section["title"], section.get("kind", "normal"))
         title = section["title"].rstrip("：:") + "："
         if overview and key == "current":
@@ -3785,17 +3891,21 @@ def build_weekly_meeting_document(
         tc.append(_paragraph_copy(label_template, title, color, bold=True, keep_with_next=True))
         for value in _normalized_section_content(section.get("content")).splitlines():
             if value.strip():
-                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), color,
-                                          first_line_chars=2, keep_with_next=False))
+                tc.append(_apply_meeting_source_colors(
+                    _paragraph_copy(bullet_template, _meeting_bullet_value(value), color,
+                                    first_line_chars=2, keep_with_next=False),
+                    value, key, [source_slide],
+                ))
         tc.append(_paragraph_copy(blank_template, "", keep_with_next=False))
 
     for project_index, project in enumerate(result["meeting_projects"], start=1):
         heading = heading_by_key.get(project["key"])
         heading_template = heading or (headings[0] if headings else bullet_template)
-        heading_text = _text(heading.text) if heading else f"{project['title']}（汇报人：{project['reporter'] or '待补充'}）"
+        heading_text = (
+            f"{_meeting_heading_number(project_index)}、{project['title']}"
+            f"（汇报人：{project['reporter'] or '待补充'}）"
+        )
         identity = project.get("meeting_only")
-        if identity:
-            heading_text = f"{_meeting_heading_number(project_index)}、{project['title']}（汇报人：{project['reporter']}）"
         tc.append(_paragraph_copy(heading_template, heading_text))
         if identity == "guangxi" and project["slides"]:
             # 按源页保留总体情况、员工评价、实操安排和测试子节，避免把不同页
@@ -3809,7 +3919,7 @@ def build_weekly_meeting_document(
                     sections = [{"key": key, **section} for key, section in _output_sections(slide).items()
                                 if key not in {"current", "next"} or slide.get("section_presence", {}).get(key, True)]
                 for section in sections:
-                    append_meeting_block(section, overview=overview)
+                    append_meeting_block(section, overview=overview, source_slide=slide)
             continue
         for key in ("current", "next"):
             label_template = label_templates.get(key) or bullet_template
@@ -3818,31 +3928,40 @@ def build_weekly_meeting_document(
             tc.append(_paragraph_copy(label_template, label_text, bold=True, keep_with_next=True))
             values = [line for line in _normalized_section_content(project.get(key)).splitlines() if line.strip()]
             for value in values:
-                tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value),
-                                          first_line_chars=2, keep_with_next=False))
+                tc.append(_apply_meeting_source_colors(
+                    _paragraph_copy(bullet_template, _meeting_bullet_value(value),
+                                    first_line_chars=2, keep_with_next=False),
+                    value, key, project["slides"],
+                ))
             tc.append(_paragraph_copy(blank_template, "", keep_with_next=False))
         for section in _supplementary_sections(project):
             title = section["title"].rstrip("：:") + "："
             content = _normalized_section_content(section["content"])
+            section_key = _supplementary_key(section["title"], section["kind"])
             if section["kind"] == "issue":
                 label_template = label_templates.get("issues") or bullet_template
                 tc.append(_paragraph_copy(label_template, title, "FF0000", bold=True, keep_with_next=True))
                 values = [line for line in content.splitlines() if line.strip()]
                 for value in values:
-                    tc.append(_paragraph_copy(bullet_template, _meeting_bullet_value(value), "FF0000",
-                                              first_line_chars=2, keep_with_next=False))
+                    tc.append(_apply_meeting_source_colors(
+                        _paragraph_copy(bullet_template, _meeting_bullet_value(value), "FF0000",
+                                        first_line_chars=2, keep_with_next=False),
+                        value, section_key, project["slides"],
+                    ))
             else:
                 label_template = label_templates.get("current") or bullet_template
                 tc.append(normal_paragraph(label_template, title, heading=True))
                 values = content.splitlines()
                 for value in values:
-                    tc.append(normal_paragraph(bullet_template, value))
+                    tc.append(_apply_meeting_source_colors(
+                        normal_paragraph(bullet_template, value), value, section_key, project["slides"],
+                    ))
             tc.append(_paragraph_copy(blank_template, "", keep_with_next=False))
     _set_meeting_body_size(cell)
     _set_document_font(document)
+    _compact_meeting_table_tail(document)
     document.save(target)
-    _notify(progress_callback, "调整周例会末页表格", 97, "正在按文字和页面尺寸估算补齐高度，导出后请人工核验")
-    _extend_meeting_table(result, Path(target))
+    _notify(progress_callback, "完成周例会排版", 97, "表格随正文自然结束，已收紧表格后的空段落")
 
 
 def _meeting_paragraph_format(paragraph, name: str, default=None):
@@ -4036,7 +4155,12 @@ def _append_meeting_extension(document: Document, height: float) -> None:
             saved_bottom.set(qn("w:val"), "single")
             saved_bottom.set(qn("w:sz"), "4")
             saved_bottom.set(qn("w:color"), "000000")
-        _word_child(original_borders, "bottom").set(qn("w:val"), "nil")
+        # 正文行跨越多页，不能为连接末页延伸行而清除底边框，
+        # 否则分页处也会失去封口线。正文与延伸行均保留模板底边框。
+        original_bottom = original_borders.find(qn("w:bottom"))
+        if original_bottom is not None:
+            original_borders.remove(original_bottom)
+        original_borders.append(deepcopy(saved_bottom))
         blank_properties = blank.get_or_add_tcPr()
         borders = _word_child(blank_properties, "tcBorders")
         old_bottom = borders.find(qn("w:bottom"))
@@ -4074,32 +4198,24 @@ def _append_meeting_extension(document: Document, height: float) -> None:
             _word_child(properties, name).set(qn("w:val"), "0")
 
 
-def _extend_meeting_table(result: dict[str, Any], target: Path) -> None:
-    """纯 Python 估算后补齐；不声明真实分页已验证。"""
-    try:
-        document = Document(target)
-        height = _estimate_meeting_extension(document)
-        if height > 6:
-            _append_meeting_extension(document, height)
-            with tempfile.TemporaryDirectory(prefix="meeting-layout-", dir=target.parent) as scratch:
-                candidate = Path(scratch) / target.name
-                document.save(candidate)
-                os.replace(candidate, target)
-            detail = f"已按文字宽度、行距及纸张尺寸估算，追加约 {height / 72 * 25.4:.1f} 毫米的末页延伸行。"
-        else:
-            detail = "估算末页剩余空间不足，未追加延伸行。"
-        code, label = "meeting_table_manual_review", "末页排版需人工核验"
-        detail += " 未调用 Office 排版，实际分页可能与估算不同。"
-    except Exception as exc:
-        code, label = "meeting_table_extension_skipped", "末页表格未补齐"
-        detail = f"已保留原始文档，自动补齐未完成：{exc}"
-    result["issues"].append({
-        "severity": "warning", "code": code, "label": label,
-        "file": target.name, "slide": 0, "location": "周例会末页", "project": "",
-        "detail": detail,
-        "suggestion": "在 WPS/Word 中检查末页边框和是否新增空白页；如有偏差，调整末尾空白延伸行的高度，必要时删除该行。",
-    })
-    result["stats"]["warning_count"] = sum(item["severity"] == "warning" for item in result["issues"])
+def _compact_meeting_table_tail(document: Document) -> None:
+    """保留表格后的必要空段落，但不追加依赖分页估算的空白表格行。"""
+    table = _meeting_cell(document)._tc.getparent().getparent()
+    following = table.getnext()
+    while (following is not None and following.tag == qn("w:p")
+           and not following.xpath(
+               ".//w:t | .//w:drawing | .//w:pict | .//w:object | .//w:br | .//w:sectPr | .//w:fldChar"
+           )):
+        properties = following.get_or_add_pPr()
+        spacing = _word_child(properties, "spacing")
+        for name, value in {"before": "0", "after": "0", "line": "20", "lineRule": "exact"}.items():
+            spacing.set(qn(f"w:{name}"), value)
+        for name in ("keepNext", "keepLines", "pageBreakBefore", "snapToGrid"):
+            _word_child(properties, name).set(qn("w:val"), "0")
+        run_properties = _word_child(properties, "rPr")
+        for name in ("sz", "szCs"):
+            _word_child(run_properties, name).set(qn("w:val"), "2")
+        following = following.getnext()
 
 
 def _excel_safe(value: Any) -> Any:
