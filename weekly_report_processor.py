@@ -53,6 +53,8 @@ SECTION_LABELS = {
 }
 SECTION_DISPLAY = {"current": "本周进展：", "next": "下周计划：", "issues": "本周问题："}
 PPT_BODY_FONT = "思源黑体CN VF Light"
+PPT_BULLET_FONT = "Arial"
+PPT_ROUND_BULLETS = "·•"
 PPT_REPORTER_FONT = "思源黑体 CN Bold"
 PPT_ISSUE_COLOR = RGBColor(255, 0, 0)
 PPT_BODY_MARGIN_LEFT = Pt(8)
@@ -69,6 +71,7 @@ PPT_FLOW_LABEL_LINE_HEIGHT = Pt(18)
 PPT_FLOW_BOTTOM_SAFETY = Pt(4)
 PPT_FLOW_GAP = Pt(6)
 PPT_ISSUE_WIDTH_FRACTIONS = (0.35, 0.30, 0.25, 0.20, 0.15)
+PPT_ISSUE_MIN_BODY_FRACTION = 0.25
 PPT_FLOW_LABEL_HEIGHT = PPT_FLOW_LABEL_LINE_HEIGHT * 4 + 2 * PPT_BODY_MARGIN_TOP
 IGNORED_SLIDE_TITLES = (
     "在建项目整体情况",
@@ -605,7 +608,7 @@ def _audit_shape_bounds(entries: list[dict[str, Any]], width: int, height: int, 
     return issues
 
 
-def _ppt_section_text_colors(entries: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def _ppt_section_text_colors(entries: list[dict[str, Any]], slide) -> dict[str, list[dict[str, Any]]]:
     """保留正文的 RGB 颜色及字符位置，供会议纪要匹配；不序列化 PPT 对象。"""
     sections: dict[str, list[dict[str, Any]]] = {}
     for entry in entries:
@@ -616,10 +619,11 @@ def _ppt_section_text_colors(entries: list[dict[str, Any]]) -> dict[str, list[di
         if not key:
             continue
         for paragraph in shape.text_frame.paragraphs:
-            default = paragraph._p.find("./" + qn("a:pPr") + "/" + qn("a:defRPr") + "/" + qn("a:solidFill") + "/" + qn("a:srgbClr"))
+            element = _ppt_effective_paragraph(shape, slide, paragraph)
+            default = element.find("./" + qn("a:pPr") + "/" + qn("a:defRPr") + "/" + qn("a:solidFill") + "/" + qn("a:srgbClr"))
             default_color = default.get("val") if default is not None else None
             text, colors = [], []
-            for child in paragraph._p:
+            for child in element:
                 if child.tag not in {qn("a:r"), qn("a:fld")}:
                     continue
                 value = child.find(qn("a:t"))
@@ -634,6 +638,139 @@ def _ppt_section_text_colors(entries: list[dict[str, Any]]) -> dict[str, list[di
                         colors.append(color)
             if text and any(colors):
                 sections.setdefault(key, []).append({"text": "".join(text), "colors": colors})
+    return sections
+
+
+def _ppt_effective_paragraph(shape, slide, paragraph):
+    """Materialize list defaults before moving text away from its source master."""
+    level = paragraph.level
+    layers = []
+
+    def add_list_style(style) -> None:
+        if style is not None:
+            for name in ("defPPr", f"lvl{level + 1}pPr"):
+                node = style.find(qn(f"a:{name}"))
+                if node is not None:
+                    layers.append(node)
+
+    add_list_style(slide.part.package.presentation_part._element.find(qn("p:defaultTextStyle")))
+    placeholder = shape._element.find(".//" + qn("p:ph"))
+    placeholder_type = placeholder.get("type", "obj") if placeholder is not None else ""
+    style_name = ("titleStyle" if placeholder_type in {"title", "ctrTitle"} else
+                  "bodyStyle" if placeholder_type in {"body", "obj", "subTitle"} else "otherStyle")
+    master = slide.slide_layout.slide_master
+    styles = master._element.find(qn("p:txStyles"))
+    add_list_style(styles.find(qn(f"p:{style_name}")) if styles is not None else None)
+    if placeholder is not None:
+        for owner in (master, slide.slide_layout):
+            candidates = [candidate for candidate in owner.shapes
+                          if candidate.is_placeholder and getattr(candidate, "has_text_frame", False)]
+            # Layout placeholders match by idx; master placeholders match by
+            # type (their idx values belong to a different placeholder set).
+            match = next((candidate for candidate in candidates
+                          if owner is not master and candidate.placeholder_format.idx == shape.placeholder_format.idx), None)
+            if match is None:
+                match = next((candidate for candidate in candidates
+                              if candidate.placeholder_format.type == shape.placeholder_format.type), None)
+            if match is None and owner is master and style_name == "bodyStyle":
+                match = next((candidate for candidate in candidates
+                              if candidate._element.find(".//" + qn("p:ph")).get("type") == "body"), None)
+            if match is not None:
+                add_list_style(match.text_frame._txBody.find(qn("a:lstStyle")))
+                layers.extend(item._p.get_or_add_pPr() for item in match.text_frame.paragraphs
+                              if item.level == level)
+    add_list_style(shape.text_frame._txBody.find(qn("a:lstStyle")))
+    own = paragraph._p.find(qn("a:pPr"))
+    if own is not None:
+        layers.append(own)
+    element = deepcopy(paragraph._p)
+    properties = element.get_or_add_pPr()
+    for attribute in ("marL", "marR", "indent", "defTabSz"):
+        value = next((node.get(attribute) for node in reversed(layers) if node.get(attribute) is not None), None)
+        if value is not None:
+            properties.set(attribute, value)
+    # Bullet type/font/size/color are choice groups, not independently inherited tags.
+    for names in (("buClrTx", "buClr"), ("buSzTx", "buSzPct", "buSzPts"),
+                  ("buFontTx", "buFont"), ("buNone", "buAutoNum", "buChar", "buBlip"), ("tabLst",)):
+        inherited = next((child for node in reversed(layers) for child in node
+                          if child.tag.rsplit("}", 1)[-1] in names), None)
+        if inherited is not None:
+            for name in names:
+                for child in properties.findall(qn(f"a:{name}")):
+                    properties.remove(child)
+            properties.append(deepcopy(inherited))
+    defaults = properties.get_or_add_defRPr()
+    # Keep inherited emphasis and color, while final rendering still owns body fonts/sizes.
+    for node in layers:
+        source = node.find(qn("a:defRPr"))
+        if source is None:
+            continue
+        for attribute in ("b", "i", "u", "sz"):
+            if source.get(attribute) is not None:
+                defaults.set(attribute, source.get(attribute))
+        fills = {"solidFill", "noFill", "gradFill", "blipFill", "pattFill", "grpFill"}
+        fill = next((child for child in source if child.tag.rsplit("}", 1)[-1] in fills), None)
+        if fill is not None:
+            for child in list(defaults):
+                if child.tag.rsplit("}", 1)[-1] in fills:
+                    defaults.remove(child)
+            defaults.insert_element_before(deepcopy(fill), "a:effectLst", "a:effectDag", "a:highlight", "a:uLnTx",
+                                           "a:uLn", "a:uFillTx", "a:uFill", "a:latin", "a:ea", "a:cs", "a:sym",
+                                           "a:hlinkClick", "a:hlinkMouseOver", "a:rtl", "a:extLst")
+    order = ("lnSpc", "spcBef", "spcAft", "buClrTx", "buClr", "buSzTx", "buSzPct", "buSzPts",
+             "buFontTx", "buFont", "buNone", "buAutoNum", "buChar", "buBlip", "tabLst", "defRPr", "extLst")
+    for child in sorted(list(properties), key=lambda node: order.index(node.tag.rsplit("}", 1)[-1])
+                        if node.tag.rsplit("}", 1)[-1] in order else len(order)):
+        properties.append(child)
+    return element
+
+
+def _ppt_source_paragraphs(shape, slide) -> list[dict[str, Any]]:
+    items = _trim_flow_paragraphs([
+        {"text": paragraph.text, "xml": _ppt_effective_paragraph(shape, slide, paragraph), "source_slide": slide}
+        for paragraph in shape.text_frame.paragraphs
+    ])
+    return _normalize_body_hierarchy(_normalize_mixed_body_paragraphs(items))
+
+
+def _ppt_section_paragraph_styles(entries: list[dict[str, Any]], slide) -> dict[str, list[dict[str, Any]]]:
+    """Serializable paragraph roles shared with Word; retain soft-line continuations."""
+    sections: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        shape = entry["shape"]
+        if not getattr(shape, "has_text_frame", False) or _entry_section_key(entry):
+            continue
+        key = _body_section_key(entries, entry)
+        if not key:
+            continue
+        for item in _ppt_source_paragraphs(shape, slide):
+            properties = item["xml"].get_or_add_pPr()
+            level = int(properties.get("lvl", "0"))
+            native_list = any(properties.find(qn(f"a:{name}")) is not None
+                              for name in ("buChar", "buAutoNum", "buBlip"))
+            heading = _flow_is_heading(item)
+            default_bold = properties.get_or_add_defRPr().get("b", "0")
+            bold = []
+            for child in item["xml"]:
+                value = child.find(qn("a:t"))
+                if value is not None:
+                    run_properties = child.find(qn("a:rPr"))
+                    enabled = run_properties.get("b", default_bold) if run_properties is not None else default_bold
+                    bold.extend(enabled in {"1", "true"} for char in value.text or "" if not char.isspace())
+            offset = 0
+            for line_index, raw in enumerate(item["text"].split("\v")):
+                plain = re.sub(r"\s+", "", raw)
+                clean = re.sub(r"\s+", "", _clean_line(raw))
+                start = len(plain) - len(plain.lstrip("·•▪◆◇■□▍"))
+                literal_list = bool(re.match(r"^[ \t\u3000]*[·•▪◆◇■□▍]", raw))
+                kind = ("heading" if heading else "list" if literal_list or (native_list and line_index == 0)
+                        else "continuation" if line_index and native_list else "body")
+                if clean:
+                    sections.setdefault(key, []).append({
+                        "text": clean, "level": level, "kind": kind,
+                        "bold": bold[offset + start:offset + start + len(clean)],
+                    })
+                offset += len(plain)
     return sections
 
 
@@ -768,7 +905,8 @@ def parse_presentation_source(path: str | Path, display_name: str, expected: lis
             "current": section_values["current"], "next": section_values["next"], "issues": section_values["issues"],
             "supplementary_sections": supplementary,
             "meeting_only": identity, "meeting_sections": meeting_sections,
-            "text_colors": _ppt_section_text_colors(entries),
+            "text_colors": _ppt_section_text_colors(entries, slide),
+            "paragraph_styles": _ppt_section_paragraph_styles(entries, slide),
             "section_presence": {
                 section_key: any(
                     _section_is_issue(_entry_section_key(entry)) if section_key == "issues"
@@ -1206,12 +1344,24 @@ def process_weekly_report(
         meeting_results.append({**_project_result(project, slides, all_issues, "周例会"),
                                 "meeting_only": identity})
     for project in meeting_results:
-        # 会议纪要只使用源文件姓名，不回退到模板或专用汇报的固定姓名。
+        # 优先使用源文件姓名；市场和广西专用汇报缺少姓名时采用约定默认值。
         reporters = dict.fromkeys(
             _text(slide.get("reporter")) for slide in project["slides"]
             if _text(slide.get("reporter"))
         )
         project["reporter"] = "、".join(reporters)
+        identity = project.get("meeting_only")
+        if identity in MEETING_ONLY_PROJECTS and project["reporter"] in {"", "待补充"}:
+            project["reporter"] = MEETING_ONLY_PROJECTS[identity][1]
+
+    # 按汇报人首次出现的顺序归组，组内保留原项目顺序；缺失姓名各自独立。
+    reporter_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for project_index, project in enumerate(meeting_results):
+        reporter_key = re.sub(r"\s+", "", project["reporter"])
+        group_key = (("reporter", reporter_key) if reporter_key and reporter_key != "待补充"
+                     else ("project", str(project_index)))
+        reporter_groups.setdefault(group_key, []).append(project)
+    meeting_results = [project for group in reporter_groups.values() for project in group]
     for project in deck_results + meeting_results:
         if len(project["source_files"]) > 1:
             all_issues.append({"severity": "warning", "code": "multiple_sources", "label": "多个源文件合并", "file": "、".join(project["source_files"]), "slide": 0, "location": project["title"], "project": project["title"], "detail": "同一项目来自多个周报文件，系统按源文件和页码顺序合并。", "suggestion": "确认这些文件是否是同一项目的不同内容页。"})
@@ -1557,6 +1707,12 @@ def _set_shape_text_color(shape, color: RGBColor) -> None:
             run.font.color.rgb = color
 
 
+def _set_issue_label_border(shape) -> None:
+    """Match the body outline even when the issue label is an unstyled textbox."""
+    shape.line.color.rgb = RGBColor(49, 93, 250)
+    shape.line.width = Pt(1)
+
+
 def _apply_issue_text_color(slide, issue_text: str) -> None:
     """Style actual supplementary regions, never matching shared body words."""
     entries = _flatten_shapes(slide.shapes)
@@ -1569,6 +1725,8 @@ def _apply_issue_text_color(slide, issue_text: str) -> None:
             shape.fill.solid()
             shape.fill.fore_color.rgb = RGBColor(255, 255, 0) if _section_is_issue(key) else RGBColor(20, 68, 216)
             _set_shape_text_color(shape, PPT_ISSUE_COLOR if _section_is_issue(key) else RGBColor(255, 255, 255))
+            if _section_is_issue(key):
+                _set_issue_label_border(shape)
             continue
         if _entry_role(entry) == "body":
             body_key = _body_section_key(entries, entry)
@@ -1732,10 +1890,180 @@ def _trim_flow_paragraphs(paragraphs: list[dict[str, Any]]) -> list[dict[str, An
     return paragraphs
 
 
-def _trim_body_whitespace(frame) -> None:
+def _normalize_ppt_round_bullets(element, text: str) -> str:
+    """Use the same solid dot for native and typed bullets, preserving indents."""
+    properties = element.find(qn("a:pPr"))
+    bullet = properties.find(qn("a:buChar")) if properties is not None else None
+    if bullet is not None and bullet.get("char") in set(PPT_ROUND_BULLETS):
+        bullet.set("char", "•")
+        for child in list(properties):
+            if child.tag.rsplit("}", 1)[-1] in {"buFont", "buFontTx", "buSzPct", "buSzPts", "buSzTx"}:
+                properties.remove(child)
+        size = OxmlElement("a:buSzTx")
+        font = OxmlElement("a:buFont")
+        font.set("typeface", PPT_BULLET_FONT)
+        bullet.addprevious(size)
+        bullet.addprevious(font)
+
+    # Only line-leading markers are bullets; middle dots inside body text
+    # (names, expressions, etc.) and numbered/non-round lists stay unchanged.
+    marker_offsets = {
+        match.start("bullet") for match in re.finditer(
+            rf"(?:^|[\v\n\r])[ \t\u3000]*(?P<bullet>[{PPT_ROUND_BULLETS}])", text,
+        )
+    }
+    offset = 0
+    for child in list(element):
+        value_node = child.find(qn("a:t"))
+        value = "\v" if child.tag == qn("a:br") else (value_node.text or "") if value_node is not None else ""
+        positions = {index - offset for index in marker_offsets if offset <= index < offset + len(value)}
+        offset += len(value)
+        if child.tag != qn("a:r") or not positions:
+            continue
+        # Give just the marker its own font; retain every other run property
+        # and the surrounding text, even when the bullet shared a body run.
+        boundaries = sorted({0, len(value)} | positions | {index + 1 for index in positions})
+        for start, end in zip(boundaries, boundaries[1:]):
+            part = deepcopy(child)
+            part.find(qn("a:t")).text = "•" if start in positions else value[start:end]
+            if start in positions:
+                run_properties = part.get_or_add_rPr()
+                for name in ("latin", "ea", "cs", "sym"):
+                    font = run_properties.find(qn(f"a:{name}"))
+                    if font is not None:
+                        run_properties.remove(font)
+                for name in ("latin", "ea", "cs"):
+                    font = OxmlElement(f"a:{name}")
+                    font.set("typeface", PPT_BULLET_FONT)
+                    run_properties.insert_element_before(font, "a:hlinkClick", "a:hlinkMouseOver", "a:rtl", "a:extLst")
+            child.addprevious(part)
+        element.remove(child)
+    return "".join(
+        "\v" if child.tag == qn("a:br") else (child.find(qn("a:t")).text or "")
+        for child in element if child.tag == qn("a:br") or child.find(qn("a:t")) is not None
+    )
+
+
+def _normalize_mixed_body_paragraphs(paragraphs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Split headings and space-indented bullets without flattening real lists."""
+    normalized = []
+    bullet_lines = re.compile(r"(?:^|\v)([ \t\u3000]*)(?=[·•▪◆◇■□▍])")
+    for item in paragraphs:
+        text = item["text"]
+        properties = item["xml"].find(qn("a:pPr"))
+        if ("\v" not in text or item.get("continued") or (properties is not None and (
+            any(int(properties.get(name, "0")) != 0 for name in ("lvl", "marL", "indent"))
+            or any(properties.find(qn(f"a:{tag}")) is not None
+                   for tag in ("buChar", "buAutoNum", "buBlip", "tabLst"))
+        ))):
+            normalized.append(item)
+            continue
+        heading_end = text.index("\v")
+        heading = _flow_paragraph_slice(item, 0, heading_end, continuation=False)
+        body_start = heading_end + 1
+        matches = list(bullet_lines.finditer(text, heading_end))
+        # Replace manual spacing below a recognized heading, carrying distinct
+        # whitespace depths into real nested levels instead of flattening them.
+        if (not _flow_is_heading(heading) or not matches
+                or matches[0].start(1) != body_start
+                or len(matches[0].group(1)) < 2):
+            normalized.append(item)
+            continue
+        normalized.append(heading)
+        indent_widths = sorted({len(match.group(1).replace("\t", "    ").replace("\u3000", "  ")) for match in matches})
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start(1) if index + 1 < len(matches) else len(text)
+            # Slice the original XML so run emphasis, colors and ordinary
+            # soft-wrapped continuation lines survive the indentation repair.
+            bullet = _flow_paragraph_slice(item, match.end(1), end, continuation=False)
+            properties = bullet["xml"].find(qn("a:pPr"))
+            if properties is None:
+                properties = OxmlElement("a:pPr")
+                bullet["xml"].insert(0, properties)
+            indent_width = len(match.group(1).replace("\t", "    ").replace("\u3000", "  "))
+            properties.set("lvl", str(min(8, 1 + indent_widths.index(indent_width))))
+            properties.attrib.pop("marL", None)
+            properties.set("indent", "0")
+            if properties.find(qn("a:buNone")) is None:
+                properties.insert_element_before(OxmlElement("a:buNone"), "a:tabLst", "a:defRPr", "a:extLst")
+            normalized.append(bullet)
+    return normalized
+
+
+def _normalize_body_hierarchy(paragraphs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep source levels, using explicit hanging indents for every list item."""
+    items = []
+    for item in paragraphs:
+        markers = list(re.finditer(r"(?:^|\v)(?P<space>[ \t\u3000]*)(?P<bullet>[·•▪◆◇■□▍])[ \t]*", item["text"]))
+        if not markers or markers[0].start() != 0:
+            items.append(item)
+            continue
+        # Separate literal list items, but retain unmarked soft continuation lines.
+        indent_widths = sorted({len(marker.group("space").replace("\t", "    ").replace("\u3000", "  "))
+                                for marker in markers})
+        for index, marker in enumerate(markers):
+            end = markers[index + 1].start() if index + 1 < len(markers) else len(item["text"])
+            part = _flow_paragraph_slice(item, marker.end(), end, continuation=False)
+            properties = part["xml"].get_or_add_pPr()
+            indent_width = len(marker.group("space").replace("\t", "    ").replace("\u3000", "  "))
+            properties.set("lvl", str(min(8, int(properties.get("lvl", "0")) + indent_widths.index(indent_width))))
+            for name in ("buNone", "buChar", "buAutoNum", "buBlip"):
+                for node in properties.findall(qn(f"a:{name}")):
+                    properties.remove(node)
+            bullet = OxmlElement("a:buChar")
+            bullet.set("char", marker.group("bullet"))
+            properties.insert_element_before(bullet, "a:tabLst", "a:defRPr", "a:extLst")
+            items.append(part)
+    margins = sorted({int(item["xml"].get_or_add_pPr().get("marL", "0"))
+                      for item in items if item["text"].strip()})
+    # Authors also use explicit margins instead of lvl. Ignore tiny alignment
+    # differences, while retaining distinct, deliberately indented levels.
+    margin_levels = []
+    for margin in margins:
+        if not margin_levels or margin - margin_levels[-1] >= Pt(8):
+            margin_levels.append(margin)
+    for item in items:
+        properties = item["xml"].get_or_add_pPr()
+        margin = int(properties.get("marL", "0"))
+        inferred = max((index for index, value in enumerate(margin_levels) if margin >= value), default=0)
+        level = min(8, max(int(properties.get("lvl", "0")), inferred))
+        properties.set("lvl", str(level))
+        native_list = any(properties.find(qn(f"a:{name}")) is not None
+                          for name in ("buChar", "buAutoNum", "buBlip"))
+        if native_list:
+            hanging = (max(Pt(14), abs(int(properties.get("indent", "0"))))
+                       if properties.find(qn("a:buAutoNum")) is not None else Pt(14))
+            properties.set("marL", str(Pt(24) * level + hanging))
+            properties.set("indent", str(-hanging))
+            # Rebase source tab stops with the list, retaining tabs used inside
+            # body text while aligning the marker with its continuation lines.
+            tabs = properties.find(qn("a:tabLst"))
+            later_stops = [deepcopy(tab) for tab in tabs if int(tab.get("pos", "0")) > margin] if tabs is not None else []
+            if tabs is not None:
+                properties.remove(tabs)
+            tabs = OxmlElement("a:tabLst")
+            tab = OxmlElement("a:tab")
+            tab.set("pos", properties.get("marL"))
+            tab.set("algn", "l")
+            tabs.append(tab)
+            for tab in later_stops:
+                tab.set("pos", str(int(tab.get("pos")) - margin + int(properties.get("marL"))))
+                tabs.append(tab)
+            properties.insert_element_before(tabs, "a:defRPr", "a:extLst")
+        elif _flow_is_heading(item):
+            properties.set("marL", str(Pt(24) * level))
+            properties.set("indent", "0")
+    return items
+
+
+def _trim_body_whitespace(frame, *, normalize_lists: bool = False) -> None:
     paragraphs = _trim_flow_paragraphs([
         {"text": paragraph.text, "xml": paragraph._p} for paragraph in frame.paragraphs
     ])
+    if normalize_lists:
+        paragraphs = _normalize_body_hierarchy(_normalize_mixed_body_paragraphs(paragraphs))
+    for item in paragraphs:
+        item["text"] = _normalize_ppt_round_bullets(item["xml"], item["text"])
     for element in list(frame._txBody.findall(qn("a:p"))):
         frame._txBody.remove(element)
     for item in paragraphs:
@@ -1762,7 +2090,7 @@ def _fit_compact_slide(slide) -> tuple[bool, dict[str, dict[str, Any]]]:
             fits = False
             bodies.append(label)
         for shape in bodies:
-            _trim_body_whitespace(shape.text_frame)
+            _trim_body_whitespace(shape.text_frame, normalize_lists=key in {"current", "next"})
             if not _text(shape.text) or str(shape.shape_id) in fitted:
                 continue
             frame = shape.text_frame
@@ -1797,10 +2125,7 @@ def _flow_paragraphs(project: dict[str, Any], source_slides: list[Any]) -> dict[
             if key not in catalog:
                 continue
             for shape in parts["bodies"]:
-                items = _trim_flow_paragraphs([
-                    {"text": paragraph.text, "xml": deepcopy(paragraph._p), "source_slide": slide}
-                    for paragraph in shape.text_frame.paragraphs
-                ])
+                items = _ppt_source_paragraphs(shape, slide)
                 blanks, previous = [], None
                 for item_index, item in enumerate(items):
                     if not item["text"].strip():
@@ -1842,6 +2167,9 @@ def _flow_paragraphs(project: dict[str, Any], source_slides: list[Any]) -> dict[
                 paragraphs.append({"text": lines[index], "xml": element})
                 index += 1
                 previous = None
+        paragraphs = _normalize_mixed_body_paragraphs(paragraphs) if key in {"current", "next"} else paragraphs
+        for item in paragraphs:
+            item["text"] = _normalize_ppt_round_bullets(item["xml"], item["text"])
         sections[key] = paragraphs
     return sections
 
@@ -1988,8 +2316,7 @@ def _flow_is_heading(paragraph: dict[str, Any]) -> bool:
         return True
     properties = paragraph["xml"].find(qn("a:pPr"))
     if _has_ordered_prefix(text) or (properties is not None and (
-        int(properties.get("lvl", "0")) > 0
-        or any(properties.find(qn(f"a:{tag}")) is not None for tag in ("buChar", "buAutoNum", "buBlip"))
+        any(properties.find(qn(f"a:{tag}")) is not None for tag in ("buChar", "buAutoNum", "buBlip"))
     )):
         return False
     defaults = properties.find(qn("a:defRPr")) if properties is not None else None
@@ -2044,8 +2371,18 @@ def _flow_fragment(key: str, paragraphs: list[dict[str, Any]], rectangle: tuple[
     }
 
 
+def _flow_issue_width_candidates(
+    width: int, inset: int, fractions: tuple[float, ...], *, has_content: bool,
+) -> list[int]:
+    """Keep substantive issue text at least a quarter of the two body widths."""
+    shared_width = width - PPT_FLOW_GAP
+    body_width = max(0, shared_width - 2 * inset)
+    minimum = inset + math.ceil(body_width * PPT_ISSUE_MIN_BODY_FRACTION) if has_content else 0
+    return list(dict.fromkeys(max(minimum, round(shared_width * fraction)) for fraction in fractions))
+
+
 def _standard_flow_page(sections: dict[str, list[Any]], geometry: dict[str, int]) -> list[dict[str, Any]] | None:
-    """Choose a readable single page, preferring a full-height right issue column on ties."""
+    """Fit readable columns or full rows, keeping tall progress beside a stacked sidebar."""
     keys = set(sections)
     if keys not in ({"current", "next", "issues"}, {"current", "issues"}, {"next", "issues"}):
         return None
@@ -2053,11 +2390,17 @@ def _standard_flow_page(sections: dict[str, list[Any]], geometry: dict[str, int]
     width = geometry["body_left"] + geometry["body_width"] - left
     height = geometry["bottom"] - top
     inset = geometry["label_width"] + PPT_FLOW_GAP
+    has_issue_content = not _is_empty_section_content("\n".join(item["text"] for item in sections["issues"]))
+    issue_widths = _flow_issue_width_candidates(
+        width, inset, PPT_ISSUE_WIDTH_FRACTIONS, has_content=has_issue_content,
+    )
+    wide_issue_widths = _flow_issue_width_candidates(
+        width, inset, (*PPT_ISSUE_WIDTH_FRACTIONS, 0.40), has_content=has_issue_content,
+    )
     for font_size in PPT_BODY_FONT_STEPS:
         if len(keys) == 2:
             primary = "current" if "current" in keys else "next"
-            for fraction in PPT_ISSUE_WIDTH_FRACTIONS:
-                right_width = round((width - PPT_FLOW_GAP) * fraction)
+            for right_width in issue_widths:
                 left_width = width - PPT_FLOW_GAP - right_width
                 if min(right_width, left_width) - inset < Pt(24):
                     continue
@@ -2070,12 +2413,35 @@ def _standard_flow_page(sections: dict[str, list[Any]], geometry: dict[str, int]
                     ]
             continue
         candidates = []
-        # Prefer a readable 35% issue region; narrow it only when the main
-        # content needs more width at the same font size.
-        for mode, fractions in (("side", PPT_ISSUE_WIDTH_FRACTIONS),
-                                ("wide", (*PPT_ISSUE_WIDTH_FRACTIONS, 0.40))):
-            for width_rank, fraction in enumerate(fractions):
-                right_width = round((width - PPT_FLOW_GAP) * fraction)
+        full_current_min = _flow_required_height("current", sections["current"], width - inset, font_size)
+        if full_current_min > height * 0.60:
+            # Tall progress uses the full left column. The right column holds
+            # plan above issues, with the same padding and label sizes as usual.
+            for width_rank, right_width in enumerate(issue_widths):
+                left_width = width - PPT_FLOW_GAP - right_width
+                if min(right_width, left_width) - inset < Pt(24):
+                    continue
+                current_min = _flow_required_height("current", sections["current"], left_width - inset, font_size)
+                next_min = _flow_required_height("next", sections["next"], right_width - inset, font_size)
+                issue_min = _flow_required_height("issues", sections["issues"], right_width - inset, font_size)
+                if current_min > height or next_min + PPT_FLOW_GAP + issue_min > height:
+                    continue
+                next_height = min(max(round((height - PPT_FLOW_GAP) * 0.65), next_min),
+                                  height - PPT_FLOW_GAP - issue_min)
+                right_left = left + left_width + PPT_FLOW_GAP
+                rectangles = {
+                    "current": (left, top, left_width, height),
+                    "next": (right_left, top, right_width, next_height),
+                    "issues": (right_left, top + next_height + PPT_FLOW_GAP,
+                               right_width, height - next_height - PPT_FLOW_GAP),
+                }
+                page = [_flow_fragment(key, sections[key], rectangles[key], geometry, font_size)
+                        for key in ("current", "next", "issues")]
+                candidates.append(((0, width_rank), page))
+        # Retain width preference order without narrowing substantive issues
+        # below their share of the body area, excluding both labels and gaps.
+        for mode, widths in (("side", issue_widths), ("wide", wide_issue_widths)):
+            for width_rank, right_width in enumerate(widths):
                 left_width = width - PPT_FLOW_GAP - right_width
                 if min(right_width, left_width) - inset < Pt(24):
                     continue
@@ -2099,7 +2465,22 @@ def _standard_flow_page(sections: dict[str, list[Any]], geometry: dict[str, int]
                 }
                 page = [_flow_fragment(key, sections[key], rectangles[key], geometry, font_size)
                         for key in ("current", "next", "issues")]
-                candidates.append(((mode != "side", width_rank), page))
+                candidates.append(((1 if mode == "side" else 2, width_rank), page))
+        # If neither column arrangement works, give each section its own full
+        # row. Never reclaim padding or label height to produce a thin footer.
+        next_min = _flow_required_height("next", sections["next"], width - inset, font_size)
+        issue_min = _flow_required_height("issues", sections["issues"], width - inset, font_size)
+        if full_current_min + next_min + issue_min + 2 * PPT_FLOW_GAP <= height:
+            current_height = height - next_min - issue_min - 2 * PPT_FLOW_GAP
+            next_top = top + current_height + PPT_FLOW_GAP
+            rectangles = {
+                "current": (left, top, width, current_height),
+                "next": (left, next_top, width, next_min),
+                "issues": (left, next_top + next_min + PPT_FLOW_GAP, width, issue_min),
+            }
+            page = [_flow_fragment(key, sections[key], rectangles[key], geometry, font_size)
+                    for key in ("current", "next", "issues")]
+            candidates.append(((3, 0), page))
         if candidates:
             return min(candidates, key=lambda candidate: candidate[0])[1]
     return None
@@ -2174,16 +2555,13 @@ def _flow_pages_with_empty_sections(
                 or reduced["bottom"] - top < max(_flow_label_height(key) for key in content)):
             continue
         try:
-            pages = _linear_flow_page_plan(content, reduced)
+            pages = _linear_flow_page_plan(content, geometry, final_geometry=reduced)
         except ValueError:
             # The alternate reserved region may still fit a heading and body
             # that cannot be split inside this narrower/shorter candidate.
             continue
         if not pages:
             continue
-        _position_flow_pages(pages, reduced)
-        for page in pages[:-1]:
-            _expand_flow_page(page, geometry)
         pages[-1].extend(_flow_fragment(key, items, rectangle, geometry, pages[-1][0]["font_size"])
                          for (key, items), rectangle in zip(empty.items(), rectangles))
         tail_sections = {}
@@ -2199,6 +2577,12 @@ def _flow_pages_with_empty_sections(
 
 
 def _flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, int]) -> list[list[dict[str, Any]]]:
+    # Standalone blank paragraphs are source-page padding, not report items.
+    # Remove them before measuring so pagination and rendering share the space.
+    sections = {
+        key: [item for item in items if item["text"].strip()] if key in {"current", "next"} else items
+        for key, items in sections.items()
+    }
     page = _standard_flow_page(sections, geometry)
     if page is not None:
         return _position_flow_pages([page], geometry)
@@ -2208,8 +2592,10 @@ def _flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, int]) ->
     return _position_flow_pages(pages, geometry)
 
 
-def _linear_flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, int]) -> list[list[dict[str, Any]]]:
-    """Fit complete paragraphs at the largest size, then split at the floor."""
+def _linear_flow_page_plan(
+    sections: dict[str, list[Any]], geometry: dict[str, int], *, final_geometry: dict[str, int] | None = None,
+) -> list[list[dict[str, Any]]]:
+    """Fill full-sized pages, reserving placeholder space only on the last."""
     top, bottom, width = geometry["top"], geometry["bottom"], geometry["body_width"]
     height = bottom - top
     if any(height < _flow_label_height(key) for key, items in sections.items() if items):
@@ -2219,21 +2605,46 @@ def _linear_flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, i
     pending = [(key, item) for key in order for item in _trim_flow_paragraphs(sections[key])]
     pages, page = [], []
     font_size, minimum_font = PPT_FLOW_FONT_SIZE, PPT_FLOW_FONT_STEPS[-1]
+    fragment_index = 0
 
-    def fits(candidate, size):
-        minimums, _ = _flow_page_minimums(candidate, width, size)
-        return sum(minimums) + PPT_FLOW_GAP * max(0, len(candidate) - 1) <= height
+    def fits(candidate, size, page_geometry=None):
+        page_geometry = page_geometry if page_geometry is not None else geometry
+        minimums, _ = _flow_page_minimums(candidate, page_geometry["body_width"], size)
+        available = page_geometry["bottom"] - page_geometry["top"]
+        return sum(minimums) + PPT_FLOW_GAP * max(0, len(candidate) - 1) <= available
 
-    def finish_page():
-        nonlocal page, font_size
+    def finish_page(page_geometry=None):
+        nonlocal page, font_size, fragment_index
+        page_geometry = page_geometry if page_geometry is not None else geometry
         if page:
-            for fragment in page:
-                fragment["font_size"] = font_size
-                fragment["line_height"] = _ppt_body_line_height(font_size)
+            minimums, line_counts = _flow_page_minimums(page, page_geometry["body_width"], font_size)
+            available = page_geometry["bottom"] - page_geometry["top"]
+            extra = available - PPT_FLOW_GAP * (len(page) - 1) - sum(minimums)
+            if extra < 0:
+                raise ValueError("周报单列分页高度超过模板正文区域")
+            total_lines = max(1, sum(line_counts))
+            y, distributed = page_geometry["top"], 0
+            for index, (fragment, minimum, lines) in enumerate(zip(page, minimums, line_counts)):
+                share = extra - distributed if index == len(page) - 1 else extra * lines // total_lines
+                fragment.update(index=fragment_index, top=y, height=minimum + share, line_count=lines,
+                                font_size=font_size, line_height=_ppt_body_line_height(font_size))
+                for coordinate in ("left", "label_width", "body_left", "body_width"):
+                    fragment[coordinate] = page_geometry[coordinate]
+                fragment_index += 1
+                distributed += share
+                y += fragment["height"] + PPT_FLOW_GAP
             pages.append(page)
         page, font_size = [], PPT_FLOW_FONT_SIZE
 
     while pending:
+        if not page and final_geometry is not None:
+            tail = _flow_append([], pending)
+            tail_font = next((size for size in PPT_FLOW_FONT_STEPS if fits(tail, size, final_geometry)), None)
+            if tail_font is not None:
+                page, font_size = tail, tail_font
+                pending.clear()
+                finish_page(final_geometry)
+                break
         key, paragraph = pending[0]
         unit_count, tail_pair = 1, False
         # A short plan followed only by "无" is one placement unit. Pulling just
@@ -2254,28 +2665,32 @@ def _linear_flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, i
                 unit_count += 1
         unit = pending[:unit_count]
         trial = _flow_append(page, unit)
-        selected_font = next((size for size in PPT_FLOW_FONT_STEPS if size <= font_size and fits(trial, size)), None)
+        consumes_tail = unit_count == len(pending)
+        trial_geometry = final_geometry if consumes_tail and final_geometry is not None else geometry
+        selected_font = next((size for size in PPT_FLOW_FONT_STEPS
+                              if size <= font_size and fits(trial, size, trial_geometry)), None)
         if selected_font is not None:
             page, font_size = trial, selected_font
             del pending[:unit_count]
+            if not pending and final_geometry is not None:
+                finish_page(final_geometry)
             continue
 
         # Recalculate the entire page at 9pt before attempting a continuation.
-        # Splits must leave at least two visual lines on each side, and any
-        # heading in this placement unit stays with the prefix.
+        # A single line may stay on either page. Keep a heading with at least
+        # the first body line, rather than moving the whole item to the next page.
         split_found = False
-        if not tail_pair:
+        if not tail_pair and not _flow_is_heading(unit[-1][1]):
             body_key, body = unit[-1]
             ends = _flow_line_ends(body, width, font_size=minimum_font)
-            max_prefix = min(len(ends) - 2, int(
+            max_prefix = min(len(ends) - 1, int(
                 (height - 2 * PPT_BODY_MARGIN_TOP - PPT_FLOW_BOTTOM_SAFETY) // _ppt_body_line_height(minimum_font)
             ))
-            for line_count in range(max_prefix, 1, -1):
+            for line_count in range(max_prefix, 0, -1):
                 cut = ends[line_count - 1]
                 prefix = _flow_paragraph_slice(body, 0, cut)
                 suffix = _flow_paragraph_slice(body, cut, len(body["text"]), trim_break=False)
-                if (len(_flow_line_ends(prefix, width, font_size=minimum_font)) < 2
-                        or len(_flow_line_ends(suffix, width, font_size=minimum_font)) < 2):
+                if not prefix["text"].strip() or not suffix["text"].strip():
                     continue
                 candidate = _flow_append(page, unit[:-1] + [(body_key, prefix)])
                 if fits(candidate, minimum_font):
@@ -2286,7 +2701,7 @@ def _linear_flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, i
                     break
         if not page:
             # A tiny/custom template may not have space for a heading and the
-            # minimum two-line prefix. Fail explicitly rather than loop forever.
+            # first body line. Fail explicitly rather than loop forever.
             raise ValueError("周报模板正文区域不足以容纳标题及正文续段")
         finish_page()
         if split_found:
@@ -2294,22 +2709,6 @@ def _linear_flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, i
         # Nothing was consumed: retry the intact unit on the next empty page.
 
     finish_page()
-    # Only now stretch the selected content. Pagination and font selection must
-    # never use the expanded boxes as their text's required height.
-    fragment_index = 0
-    for page in pages:
-        minimums, line_counts = _flow_page_minimums(page, width, page[0]["font_size"])
-        extra = height - PPT_FLOW_GAP * (len(page) - 1) - sum(minimums)
-        if extra < 0:
-            raise ValueError("周报单列分页高度超过模板正文区域")
-        total_lines = sum(line_counts)
-        y, distributed = top, 0
-        for index, (item, minimum, lines) in enumerate(zip(page, minimums, line_counts)):
-            share = extra - distributed if index == len(page) - 1 else extra * lines // total_lines
-            item.update(index=fragment_index, top=y, height=minimum + share, line_count=lines)
-            fragment_index += 1
-            distributed += share
-            y += item["height"] + PPT_FLOW_GAP
     return pages
 
 
@@ -2412,6 +2811,8 @@ def _format_flow_paragraph(paragraph, line_height: int, color: RGBColor, font_si
                 successors = tuple(f"a:{item}" for item in families[family_index + 1:])
                 properties.insert_element_before(font, *successors, "a:sym", "a:hlinkClick", "a:hlinkMouseOver", "a:rtl", "a:extLst")
             font.set("typeface", PPT_BODY_FONT)
+    # Body-font normalization must not turn round bullets back into Light glyphs.
+    _normalize_ppt_round_bullets(paragraph._p, paragraph.text)
 
 
 def _flow_render_coordinates(fragment: dict[str, Any], geometry: dict[str, int]) -> dict[str, int]:
@@ -2423,9 +2824,10 @@ def _flow_render_coordinates(fragment: dict[str, Any], geometry: dict[str, int])
         region_left == geometry["left"]
         and region_right == geometry["body_left"] + geometry["body_width"]
     )
-    if _section_is_issue(fragment["section"]) and not full_width_row:
-        # Side columns use an outer-right title; a standalone full-width row
-        # keeps the left title shared by the other vertically stacked rows.
+    right_column_plan = fragment["section"] == "next" and region_left > geometry["left"]
+    if not full_width_row and (_section_is_issue(fragment["section"]) or right_column_plan):
+        # Plans in the right column share the outer-right title position with
+        # issues. Full-width rows and plans in the left column keep left titles.
         coordinates["left"] = region_right - coordinates["label_width"]
         coordinates["body_left"] = region_left
     return coordinates
@@ -2437,6 +2839,8 @@ def _render_flow_page(slide, fragments: list[dict[str, Any]], geometry: dict[str
             _remove_element(shape._element)
     for fragment in fragments:
         key = fragment["section"]
+        compact_label = fragment.get("compact_label", False)
+        vertical_margin = fragment.get("vertical_margin", PPT_BODY_MARGIN_TOP)
         coordinates = _flow_render_coordinates(fragment, geometry)
         name = f"weekly-flow:{key}:{fragment['index']}"
         label_xml = labels.get(key)
@@ -2451,22 +2855,27 @@ def _render_flow_page(slide, fragments: list[dict[str, Any]], geometry: dict[str
         if _is_supplementary_key(key) or label.fill.type in {None, MSO_FILL_TYPE.BACKGROUND}:
             label.fill.solid()
             label.fill.fore_color.rgb = RGBColor(255, 255, 0) if _section_is_issue(key) else RGBColor(20, 68, 216)
+        if _section_is_issue(key):
+            _set_issue_label_border(label)
         label.name = name + ":label"
         label.left, label.top = coordinates["left"], fragment["top"]
         label.width, label.height = coordinates["label_width"], fragment["height"]
         label.rotation = 0
-        label.text = "\n".join(_section_title(key))
+        label.text = _section_title(key) if compact_label else "\n".join(_section_title(key))
         label.text_frame._txBody.bodyPr.set("vert", "horz")
         label.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
         label.text_frame.word_wrap = False
         label.text_frame.auto_size = MSO_AUTO_SIZE.NONE
-        label.text_frame.margin_top = label.text_frame.margin_bottom = PPT_BODY_MARGIN_TOP
+        label.text_frame.margin_top = label.text_frame.margin_bottom = vertical_margin
         label.text_frame.margin_left = label.text_frame.margin_right = 0
         for paragraph in label.text_frame.paragraphs:
             paragraph.alignment = PP_ALIGN.CENTER
             _clear_paragraph_bullets(paragraph)
-            _format_flow_paragraph(paragraph, PPT_FLOW_LABEL_LINE_HEIGHT,
-                                   PPT_ISSUE_COLOR if _section_is_issue(key) else RGBColor(255, 255, 255), PPT_FLOW_LABEL_FONT_SIZE)
+            _format_flow_paragraph(
+                paragraph, fragment["line_height"] if compact_label else PPT_FLOW_LABEL_LINE_HEIGHT,
+                PPT_ISSUE_COLOR if _section_is_issue(key) else RGBColor(255, 255, 255),
+                fragment["font_size"] if compact_label else PPT_FLOW_LABEL_FONT_SIZE,
+            )
         border = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE,
                                         coordinates["body_left"], fragment["top"],
                                         coordinates["body_width"], fragment["height"])
@@ -2482,7 +2891,7 @@ def _render_flow_page(slide, fragments: list[dict[str, Any]], geometry: dict[str
         frame.auto_size = MSO_AUTO_SIZE.NONE
         frame.vertical_anchor = MSO_ANCHOR.TOP
         frame.margin_left = frame.margin_right = PPT_BODY_MARGIN_LEFT
-        frame.margin_top = frame.margin_bottom = PPT_BODY_MARGIN_TOP
+        frame.margin_top = frame.margin_bottom = vertical_margin
         frame._txBody.bodyPr.set("vert", "horz")
         for element in list(frame._txBody.findall(qn("a:p"))):
             frame._txBody.remove(element)
@@ -2531,16 +2940,18 @@ def _text_shape_metrics(
 
 def _flow_shape_metrics(
     shape, is_label: bool = False, font_size: float = PPT_FLOW_FONT_SIZE, line_height: int | None = None,
+    *, vertical_margin: int = PPT_BODY_MARGIN_TOP, compact_label: bool = False,
 ) -> tuple[bool, int | None]:
     frame = shape.text_frame
     side_margin = 0 if is_label else PPT_BODY_MARGIN_LEFT
+    body_line_height = line_height if line_height is not None else _ppt_body_line_height(font_size)
     format_ok, required = _text_shape_metrics(
-        shape, PPT_FLOW_LABEL_FONT_SIZE if is_label else font_size,
-        PPT_FLOW_LABEL_LINE_HEIGHT if is_label else (line_height if line_height is not None else _ppt_body_line_height(font_size)),
+        shape, PPT_FLOW_LABEL_FONT_SIZE if is_label and not compact_label else font_size,
+        PPT_FLOW_LABEL_LINE_HEIGHT if is_label and not compact_label else body_line_height,
         0 if is_label else PPT_FLOW_BOTTOM_SAFETY,
     )
     margins_ok = (frame.margin_left == frame.margin_right == side_margin
-                  and frame.margin_top == frame.margin_bottom == PPT_BODY_MARGIN_TOP)
+                  and frame.margin_top == frame.margin_bottom == vertical_margin)
     return format_ok and margins_ok, required
 
 
@@ -2560,10 +2971,13 @@ def _flow_page_geometry_matches(shapes: dict[str, Any], fragments: list[dict[str
         )
         region_left = min(label.left, body.left)
         region_right = max(label.left + label.width, body.left + body.width)
+        label_line_height = fragment["line_height"] if fragment.get("compact_label", False) else PPT_FLOW_LABEL_LINE_HEIGHT
+        label_minimum = (len(label.text_frame.paragraphs) * label_line_height
+                         + label.text_frame.margin_top + label.text_frame.margin_bottom)
         if not (
             body.top == label.top == border.top == fragment["top"]
             and body.height == label.height == border.height == fragment["height"]
-            and body.height >= _flow_label_height(fragment["section"])
+            and body.height >= label_minimum
             and body.left == border.left == coordinates["body_left"]
             and body.width == border.width == coordinates["body_width"]
             and label.left == coordinates["left"] and label.width == coordinates["label_width"]
@@ -3006,6 +3420,8 @@ def _generation_qa(
                             format_ok, required = (_flow_shape_metrics(
                                 entry["shape"], entry["shape"].name.endswith(":label"),
                                 fragment["font_size"], fragment["line_height"],
+                                vertical_margin=fragment.get("vertical_margin", PPT_BODY_MARGIN_TOP),
+                                compact_label=fragment.get("compact_label", False),
                             ) if fragment is not None else (False, None))
                             if format_ok and required is not None and required <= entry["height"]:
                                 layout_ok += 1
@@ -3593,6 +4009,15 @@ def build_weekly_presentation(
             source_slide = source_cache[display_name].slides[source["slide"] - 1]
             if _is_outro_slide(source_slide):
                 continue
+            # A cloned slide uses the destination master. Freeze inherited source
+            # paragraph styles first so compact and repaginated output agree.
+            for parts in _flow_section_shapes(source_slide).values():
+                for shape in parts["bodies"]:
+                    originals = list(shape.text_frame.paragraphs)
+                    resolved = [_ppt_effective_paragraph(shape, source_slide, paragraph) for paragraph in originals]
+                    for paragraph, element in zip(originals, resolved):
+                        paragraph._p.addprevious(element)
+                        _remove_element(paragraph._p)
             source_slides.append(source_slide)
             cloned = _clone_source_slide(presentation, source_slide)
             _expand_template_groups(cloned, sections_only=True)
@@ -3719,8 +4144,10 @@ def _paragraph_copy(
     return paragraph
 
 
-def _apply_meeting_source_colors(paragraph, value: str, key: str, slides: list[dict[str, Any]]):
-    """按栏目和完整正文匹配颜色，只拆分文字 run，保留 Word 段落格式。"""
+def _apply_meeting_source_colors(
+    paragraph, value: str, key: str, slides: list[dict[str, Any]], *, source_style: dict[str, Any] | None = None,
+):
+    """按栏目匹配颜色和强调，只拆分文字 run，保留 Word 段落格式。"""
     needle = re.sub(r"\s+", "", _clean_line(value))
     if not needle:
         return paragraph
@@ -3733,7 +4160,10 @@ def _apply_meeting_source_colors(paragraph, value: str, key: str, slides: list[d
                 break
         if matched is not None:
             break
-    if matched is None or not any(matched):
+    bold = source_style.get("bold") if source_style else None
+    if bold is not None and len(bold) != len(needle):
+        bold = None
+    if (matched is None or not any(matched)) and bold is None:
         return paragraph
     runs = list(paragraph.xpath("./w:r"))
     text = "".join(node.text or "" for run in runs for node in run.findall(qn("w:t")))
@@ -3741,7 +4171,8 @@ def _apply_meeting_source_colors(paragraph, value: str, key: str, slides: list[d
     offset = "".join(text[index] for index in positions).find(needle)
     if offset < 0:
         return paragraph
-    colors = {positions[offset + index]: color for index, color in enumerate(matched) if color}
+    colors = {positions[offset + index]: color for index, color in enumerate(matched or []) if color}
+    emphasis = {positions[offset + index]: enabled for index, enabled in enumerate(bold or [])}
     cursor = 0
     for run in runs:
         # _paragraph_copy 生成的正文为普通文本；不拆分图片、域或换行对象。
@@ -3752,8 +4183,10 @@ def _apply_meeting_source_colors(paragraph, value: str, key: str, slides: list[d
         start = 0
         while start < len(value):
             color = colors.get(cursor + start)
+            enabled = emphasis.get(cursor + start)
             end = start + 1
-            while end < len(value) and colors.get(cursor + end) == color:
+            while (end < len(value) and colors.get(cursor + end) == color
+                   and emphasis.get(cursor + end) == enabled):
                 end += 1
             fragment = deepcopy(run)
             for node in list(fragment):
@@ -3768,6 +4201,12 @@ def _apply_meeting_source_colors(paragraph, value: str, key: str, slides: list[d
                 element = properties.get_or_add_color()
                 element.attrib.clear()
                 element.set(qn("w:val"), color)
+            if enabled is not None:
+                properties = fragment.get_or_add_rPr()
+                properties.get_or_add_b().val = enabled
+                bold_cs = properties.find(qn("w:bCs"))
+                if bold_cs is not None:
+                    bold_cs.set(qn("w:val"), "1" if enabled else "0")
             run.addprevious(fragment)
             start = end
         cursor += len(value)
@@ -3817,6 +4256,77 @@ def _set_meeting_body_size(cell) -> None:
 def _meeting_bullet_value(value: str) -> str:
     clean = re.sub(r"^[\s\u00b7\u2022]+", "", _text(value))
     return f"\u00b7 {clean}" if clean else "\u00b7 "
+
+
+def _meeting_source_lines(content: str, key: str, slides: list[dict[str, Any]]):
+    """Match repeated text in source order rather than assigning the first style to all."""
+    records = [record for slide in slides for record in slide.get("paragraph_styles", {}).get(key, [])]
+    cursor = 0
+    for value in _normalized_section_content(content).splitlines():
+        if not value.strip():
+            continue
+        needle = re.sub(r"\s+", "", _clean_line(value))
+        index = next((index for index in range(cursor, len(records)) if records[index]["text"] == needle), None)
+        if index is None:
+            index = next((index for index, record in enumerate(records) if record["text"] == needle), None)
+        style = records[index] if index is not None else None
+        if index is not None:
+            cursor = index + 1
+        yield value, style
+
+
+def _meeting_body_paragraph(
+    template, value: str, key: str, slides: list[dict[str, Any]], source_style: dict[str, Any] | None,
+    *, color: str | None = None, default_bullet: bool = True,
+):
+    """Render true list levels with a hanging indent, keeping headings unbulleted."""
+    style = source_style or {}
+    kind = style.get("kind", "list" if default_bullet else "body")
+    level = max(0, min(8, int(style.get("level", 0))))
+    heading = kind == "heading"
+    marker = kind == "list" and not _has_ordered_prefix(value)
+    paragraph = _paragraph_copy(template, value, color, bold=heading, keep_with_next=heading)
+    properties = paragraph.get_or_add_pPr()
+    properties.get_or_add_numPr().get_or_add_numId().val = 0
+    indent = properties.get_or_add_ind()
+    indent.attrib.clear()
+    # One-character marker gap; every subsequent line starts at the body text.
+    left = (2 * level + (2 if kind in {"list", "continuation"} else 0)) * MEETING_BODY_FONT_SIZE * 20
+    indent.set(qn("w:left"), str(left))
+    indent.set(qn("w:right"), "0")
+    indent.set(qn("w:firstLine"), "0")
+    if marker:
+        indent.attrib.pop(qn("w:firstLine"))
+        indent.set(qn("w:hanging"), str(MEETING_BODY_FONT_SIZE * 20))
+    tabs = properties.find(qn("w:tabs"))
+    if tabs is not None:
+        properties.remove(tabs)
+    if marker:
+        tabs = properties.get_or_add_tabs()
+        stop = WordElement("w:tab")
+        stop.set(qn("w:val"), "left")
+        stop.set(qn("w:pos"), str(left))
+        tabs.append(stop)
+    for run in paragraph.xpath("./w:r"):
+        run.get_or_add_rPr().get_or_add_b().val = heading
+    paragraph = _apply_meeting_source_colors(paragraph, value, key, slides, source_style=source_style)
+    if heading:
+        for run in paragraph.xpath("./w:r"):
+            run.get_or_add_rPr().get_or_add_b().val = True
+    if marker:
+        prefix = WordElement("w:r")
+        first = paragraph.find(qn("w:r"))
+        if first is not None and first.find(qn("w:rPr")) is not None:
+            prefix.append(deepcopy(first.find(qn("w:rPr"))))
+        text = WordElement("w:t")
+        text.text = "•"
+        prefix.append(text)
+        prefix.append(WordElement("w:tab"))
+        if first is not None:
+            first.addprevious(prefix)
+        else:
+            paragraph.append(prefix)
+    return paragraph
 
 
 def _meeting_heading_number(number: int) -> str:
@@ -3889,13 +4399,8 @@ def build_weekly_meeting_document(
         color = "FF0000" if section.get("kind") == "issue" else "000000"
         label_template = label_templates.get(key) or label_templates.get("current") or bullet_template
         tc.append(_paragraph_copy(label_template, title, color, bold=True, keep_with_next=True))
-        for value in _normalized_section_content(section.get("content")).splitlines():
-            if value.strip():
-                tc.append(_apply_meeting_source_colors(
-                    _paragraph_copy(bullet_template, _meeting_bullet_value(value), color,
-                                    first_line_chars=2, keep_with_next=False),
-                    value, key, [source_slide],
-                ))
+        for value, style in _meeting_source_lines(section.get("content"), key, [source_slide]):
+            tc.append(_meeting_body_paragraph(bullet_template, value, key, [source_slide], style, color=color))
         tc.append(_paragraph_copy(blank_template, "", keep_with_next=False))
 
     for project_index, project in enumerate(result["meeting_projects"], start=1):
@@ -3926,13 +4431,8 @@ def build_weekly_meeting_document(
             # 小节名只跟随后面的首段；正文沿用参考文档的自然跨页设置。
             label_text = "本周工作完成情况：" if identity and key == "current" else SECTION_DISPLAY[key]
             tc.append(_paragraph_copy(label_template, label_text, bold=True, keep_with_next=True))
-            values = [line for line in _normalized_section_content(project.get(key)).splitlines() if line.strip()]
-            for value in values:
-                tc.append(_apply_meeting_source_colors(
-                    _paragraph_copy(bullet_template, _meeting_bullet_value(value),
-                                    first_line_chars=2, keep_with_next=False),
-                    value, key, project["slides"],
-                ))
+            for value, style in _meeting_source_lines(project.get(key), key, project["slides"]):
+                tc.append(_meeting_body_paragraph(bullet_template, value, key, project["slides"], style))
             tc.append(_paragraph_copy(blank_template, "", keep_with_next=False))
         for section in _supplementary_sections(project):
             title = section["title"].rstrip("：:") + "："
@@ -3941,20 +4441,17 @@ def build_weekly_meeting_document(
             if section["kind"] == "issue":
                 label_template = label_templates.get("issues") or bullet_template
                 tc.append(_paragraph_copy(label_template, title, "FF0000", bold=True, keep_with_next=True))
-                values = [line for line in content.splitlines() if line.strip()]
-                for value in values:
-                    tc.append(_apply_meeting_source_colors(
-                        _paragraph_copy(bullet_template, _meeting_bullet_value(value), "FF0000",
-                                        first_line_chars=2, keep_with_next=False),
-                        value, section_key, project["slides"],
+                for value, style in _meeting_source_lines(content, section_key, project["slides"]):
+                    tc.append(_meeting_body_paragraph(
+                        bullet_template, value, section_key, project["slides"], style, color="FF0000",
                     ))
             else:
                 label_template = label_templates.get("current") or bullet_template
                 tc.append(normal_paragraph(label_template, title, heading=True))
-                values = content.splitlines()
-                for value in values:
-                    tc.append(_apply_meeting_source_colors(
-                        normal_paragraph(bullet_template, value), value, section_key, project["slides"],
+                for value, style in _meeting_source_lines(content, section_key, project["slides"]):
+                    tc.append(_meeting_body_paragraph(
+                        bullet_template, value, section_key, project["slides"], style,
+                        color="000000", default_bullet=False,
                     ))
             tc.append(_paragraph_copy(blank_template, "", keep_with_next=False))
     _set_meeting_body_size(cell)
@@ -4013,6 +4510,9 @@ def _estimate_meeting_paragraph(paragraph, width: float, grid_pitch: float) -> l
     if usable <= font_size or usable - first <= 0:
         raise ValueError("正文列宽不足，无法估算换行")
     line_count, used, capacity = 1, 0.0, usable - first
+    tabs = paragraph._p.find("./" + qn("w:pPr") + "/" + qn("w:tabs"))
+    tab_stops = sorted(int(tab.get(qn("w:pos"), "0")) / 20 for tab in tabs
+                       if tab.get(qn("w:val")) == "left") if tabs is not None else []
     for char in paragraph.text:
         if char in "\n\r":
             line_count += 1
@@ -4020,6 +4520,9 @@ def _estimate_meeting_paragraph(paragraph, width: float, grid_pitch: float) -> l
             continue
         char_width = font_size * (2 if char == "\t" else 1 if unicodedata.east_asian_width(char) in {"W", "F", "A"}
                                   else 0.33 if char.isspace() else 0.55)
+        if char == "\t" and tab_stops:
+            position = left + (first if line_count == 1 else 0) + used
+            char_width = next((stop - position for stop in tab_stops if stop > position), 2 * font_size)
         if used + char_width > capacity:
             line_count += 1
             used, capacity = 0.0, usable
