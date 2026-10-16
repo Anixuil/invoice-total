@@ -64,9 +64,9 @@ WEEKLY_ROSTER = [
     ("sunyanqiang", "孙艳强"), ("lilixin", "李礼辛"), ("linyu01", "林榆"),
     ("fanshuyu", "范书毓"), ("xiaozhennan", "肖镇楠"), ("wangruixia", "王瑞霞"),
     ("yinwei", "尹维"), ("yuhaicheng", "余海城"), ("muzhengyi", "穆政逸"),
-    ("ruishunzi", "芮顺子"), ("caiyuanpeng", "蔡远鹏"), ("guanhaojie", "官浩杰"),
+    ("guanhaojie", "官浩杰"),
     ("lihongqi", "李红旗"), ("liwenbo", "李文波"), ("chenyu", "陈愉"),
-    ("mojunyou", "莫钧友"), ("linyuping", "林宇萍"), ("wuyutian", "吴宇天"),
+    ("linyuping", "林宇萍"), ("wuyutian", "吴宇天"),
     ("caoyuan", "曹原"), ("liuxin01", "刘昕"),
 ]
 WEEKLY_NAME_MAP = dict(WEEKLY_ROSTER, **{"liuying": "刘颖"})
@@ -618,7 +618,7 @@ def _weekly_display_person(value: Any) -> str:
 
 
 def process_weekly_statistics(sources: dict[str, str | Path], progress_callback: ProgressCallback = None) -> dict[str, Any]:
-    """处理当前周六类 Jira 导出，生成 23 人周报统计及明细。"""
+    """处理当前周六类 Jira 导出，按周报名单生成统计及明细。"""
     all_records: dict[str, list[dict[str, Any]]] = {}
     metadata = {}
     for index, (key, path) in enumerate(sources.items(), start=1):
