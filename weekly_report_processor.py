@@ -1344,7 +1344,7 @@ def process_weekly_report(
         meeting_results.append({**_project_result(project, slides, all_issues, "周例会"),
                                 "meeting_only": identity})
     for project in meeting_results:
-        # 优先使用源文件姓名；市场和广西专用汇报缺少姓名时采用约定默认值。
+        # 优先使用源文件姓名；市场、广西和物业项目缺少姓名时采用约定默认值。
         reporters = dict.fromkeys(
             _text(slide.get("reporter")) for slide in project["slides"]
             if _text(slide.get("reporter"))
@@ -1353,6 +1353,9 @@ def process_weekly_report(
         identity = project.get("meeting_only")
         if identity in MEETING_ONLY_PROJECTS and project["reporter"] in {"", "待补充"}:
             project["reporter"] = MEETING_ONLY_PROJECTS[identity][1]
+        if (project["key"] == _canonical_title("物业商机智能体")
+                and project["reporter"] in {"", "待补充"}):
+            project["reporter"] = "周佳宇"
 
     # 按汇报人首次出现的顺序归组，组内保留原项目顺序；缺失姓名各自独立。
     reporter_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -2382,7 +2385,7 @@ def _flow_issue_width_candidates(
 
 
 def _standard_flow_page(sections: dict[str, list[Any]], geometry: dict[str, int]) -> list[dict[str, Any]] | None:
-    """Fit readable columns or full rows, keeping tall progress beside a stacked sidebar."""
+    """Keep progress and plans on the left; reserve the right column for issues."""
     keys = set(sections)
     if keys not in ({"current", "next", "issues"}, {"current", "issues"}, {"next", "issues"}):
         return None
@@ -2414,30 +2417,6 @@ def _standard_flow_page(sections: dict[str, list[Any]], geometry: dict[str, int]
             continue
         candidates = []
         full_current_min = _flow_required_height("current", sections["current"], width - inset, font_size)
-        if full_current_min > height * 0.60:
-            # Tall progress uses the full left column. The right column holds
-            # plan above issues, with the same padding and label sizes as usual.
-            for width_rank, right_width in enumerate(issue_widths):
-                left_width = width - PPT_FLOW_GAP - right_width
-                if min(right_width, left_width) - inset < Pt(24):
-                    continue
-                current_min = _flow_required_height("current", sections["current"], left_width - inset, font_size)
-                next_min = _flow_required_height("next", sections["next"], right_width - inset, font_size)
-                issue_min = _flow_required_height("issues", sections["issues"], right_width - inset, font_size)
-                if current_min > height or next_min + PPT_FLOW_GAP + issue_min > height:
-                    continue
-                next_height = min(max(round((height - PPT_FLOW_GAP) * 0.65), next_min),
-                                  height - PPT_FLOW_GAP - issue_min)
-                right_left = left + left_width + PPT_FLOW_GAP
-                rectangles = {
-                    "current": (left, top, left_width, height),
-                    "next": (right_left, top, right_width, next_height),
-                    "issues": (right_left, top + next_height + PPT_FLOW_GAP,
-                               right_width, height - next_height - PPT_FLOW_GAP),
-                }
-                page = [_flow_fragment(key, sections[key], rectangles[key], geometry, font_size)
-                        for key in ("current", "next", "issues")]
-                candidates.append(((0, width_rank), page))
         # Retain width preference order without narrowing substantive issues
         # below their share of the body area, excluding both labels and gaps.
         for mode, widths in (("side", issue_widths), ("wide", wide_issue_widths)):
@@ -2519,61 +2498,25 @@ def _expand_flow_page(page: list[dict[str, Any]], geometry: dict[str, int]) -> N
 def _flow_pages_with_empty_sections(
     sections: dict[str, list[Any]], geometry: dict[str, int],
 ) -> list[list[dict[str, Any]]] | None:
-    """Reserve placeholder space before pagination; no placeholder can create its own page."""
+    """Let progress use the full page before placing empty later sections."""
     empty = {key: items for key, items in sections.items()
              if _is_empty_section_content("\n".join(item["text"] for item in items))}
     content = {key: items for key, items in sections.items() if key not in empty}
     if not empty or not content:
         return None
-    left, top, bottom = geometry["left"], geometry["top"], geometry["bottom"]
-    width = geometry["body_left"] + geometry["body_width"] - left
-    height = bottom - top
-    inset = geometry["label_width"] + PPT_FLOW_GAP
-    candidates = []
-    for mode in ("side", "footer"):
-        reduced = dict(geometry)
-        rectangles = []
-        if mode == "side":
-            reserved = max(round(width * 0.15), inset + Pt(24))
-            box_height = (height - PPT_FLOW_GAP * (len(empty) - 1)) // len(empty)
-            if any(box_height < _flow_label_height(key) for key in empty):
-                continue
-            reduced["body_width"] -= reserved + PPT_FLOW_GAP
-            for index, key in enumerate(empty):
-                rectangles.append((left + width - reserved, top + index * (box_height + PPT_FLOW_GAP),
-                                   reserved, box_height))
-        else:
-            reserved = max(_flow_label_height(key) for key in empty)
-            reduced["bottom"] -= reserved + PPT_FLOW_GAP
-            box_width = (width - PPT_FLOW_GAP * (len(empty) - 1)) // len(empty)
-            if box_width - inset < Pt(24):
-                continue
-            for index, key in enumerate(empty):
-                rectangles.append((left + index * (box_width + PPT_FLOW_GAP), bottom - reserved,
-                                   box_width, reserved))
-        if (reduced["body_width"] < Pt(100)
-                or reduced["bottom"] - top < max(_flow_label_height(key) for key in content)):
+    # Keep placeholders in section order. Reserving their space first can
+    # move a fitting final progress paragraph onto an unnecessary new page.
+    pages = _linear_flow_page_plan(sections, geometry)
+    for page_index, page in enumerate(pages):
+        if any(fragment["section"] == "current" for fragment in page):
             continue
-        try:
-            pages = _linear_flow_page_plan(content, geometry, final_geometry=reduced)
-        except ValueError:
-            # The alternate reserved region may still fit a heading and body
-            # that cannot be split inside this narrower/shorter candidate.
-            continue
-        if not pages:
-            continue
-        pages[-1].extend(_flow_fragment(key, items, rectangle, geometry, pages[-1][0]["font_size"])
-                         for (key, items), rectangle in zip(empty.items(), rectangles))
         tail_sections = {}
-        for fragment in pages[-1]:
+        for fragment in page:
             tail_sections.setdefault(fragment["section"], []).extend(fragment["paragraphs"])
         repacked = _standard_flow_page(tail_sections, geometry)
         if repacked is not None:
-            pages[-1] = repacked
-        candidates.append(((len(pages), -min(item["font_size"] for page in pages for item in page), mode != "side"), pages))
-    if not candidates:
-        raise ValueError("周报模板没有足够空间将空栏目与实际正文放在同页")
-    return min(candidates, key=lambda candidate: candidate[0])[1]
+            pages[page_index] = repacked
+    return pages
 
 
 def _flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, int]) -> list[list[dict[str, Any]]]:
@@ -2593,9 +2536,9 @@ def _flow_page_plan(sections: dict[str, list[Any]], geometry: dict[str, int]) ->
 
 
 def _linear_flow_page_plan(
-    sections: dict[str, list[Any]], geometry: dict[str, int], *, final_geometry: dict[str, int] | None = None,
+    sections: dict[str, list[Any]], geometry: dict[str, int],
 ) -> list[list[dict[str, Any]]]:
-    """Fill full-sized pages, reserving placeholder space only on the last."""
+    """Fill progress first; later sections may start on their own full-sized page."""
     top, bottom, width = geometry["top"], geometry["bottom"], geometry["body_width"]
     height = bottom - top
     if any(height < _flow_label_height(key) for key, items in sections.items() if items):
@@ -2607,29 +2550,25 @@ def _linear_flow_page_plan(
     font_size, minimum_font = PPT_FLOW_FONT_SIZE, PPT_FLOW_FONT_STEPS[-1]
     fragment_index = 0
 
-    def fits(candidate, size, page_geometry=None):
-        page_geometry = page_geometry if page_geometry is not None else geometry
-        minimums, _ = _flow_page_minimums(candidate, page_geometry["body_width"], size)
-        available = page_geometry["bottom"] - page_geometry["top"]
-        return sum(minimums) + PPT_FLOW_GAP * max(0, len(candidate) - 1) <= available
+    def fits(candidate, size):
+        minimums, _ = _flow_page_minimums(candidate, width, size)
+        return sum(minimums) + PPT_FLOW_GAP * max(0, len(candidate) - 1) <= height
 
-    def finish_page(page_geometry=None):
+    def finish_page():
         nonlocal page, font_size, fragment_index
-        page_geometry = page_geometry if page_geometry is not None else geometry
         if page:
-            minimums, line_counts = _flow_page_minimums(page, page_geometry["body_width"], font_size)
-            available = page_geometry["bottom"] - page_geometry["top"]
-            extra = available - PPT_FLOW_GAP * (len(page) - 1) - sum(minimums)
+            minimums, line_counts = _flow_page_minimums(page, width, font_size)
+            extra = height - PPT_FLOW_GAP * (len(page) - 1) - sum(minimums)
             if extra < 0:
                 raise ValueError("周报单列分页高度超过模板正文区域")
             total_lines = max(1, sum(line_counts))
-            y, distributed = page_geometry["top"], 0
+            y, distributed = top, 0
             for index, (fragment, minimum, lines) in enumerate(zip(page, minimums, line_counts)):
                 share = extra - distributed if index == len(page) - 1 else extra * lines // total_lines
                 fragment.update(index=fragment_index, top=y, height=minimum + share, line_count=lines,
                                 font_size=font_size, line_height=_ppt_body_line_height(font_size))
                 for coordinate in ("left", "label_width", "body_left", "body_width"):
-                    fragment[coordinate] = page_geometry[coordinate]
+                    fragment[coordinate] = geometry[coordinate]
                 fragment_index += 1
                 distributed += share
                 y += fragment["height"] + PPT_FLOW_GAP
@@ -2637,14 +2576,6 @@ def _linear_flow_page_plan(
         page, font_size = [], PPT_FLOW_FONT_SIZE
 
     while pending:
-        if not page and final_geometry is not None:
-            tail = _flow_append([], pending)
-            tail_font = next((size for size in PPT_FLOW_FONT_STEPS if fits(tail, size, final_geometry)), None)
-            if tail_font is not None:
-                page, font_size = tail, tail_font
-                pending.clear()
-                finish_page(final_geometry)
-                break
         key, paragraph = pending[0]
         unit_count, tail_pair = 1, False
         # A short plan followed only by "无" is one placement unit. Pulling just
@@ -2665,15 +2596,11 @@ def _linear_flow_page_plan(
                 unit_count += 1
         unit = pending[:unit_count]
         trial = _flow_append(page, unit)
-        consumes_tail = unit_count == len(pending)
-        trial_geometry = final_geometry if consumes_tail and final_geometry is not None else geometry
         selected_font = next((size for size in PPT_FLOW_FONT_STEPS
-                              if size <= font_size and fits(trial, size, trial_geometry)), None)
+                              if size <= font_size and fits(trial, size)), None)
         if selected_font is not None:
             page, font_size = trial, selected_font
             del pending[:unit_count]
-            if not pending and final_geometry is not None:
-                finish_page(final_geometry)
             continue
 
         # Recalculate the entire page at 9pt before attempting a continuation.
@@ -2824,10 +2751,8 @@ def _flow_render_coordinates(fragment: dict[str, Any], geometry: dict[str, int])
         region_left == geometry["left"]
         and region_right == geometry["body_left"] + geometry["body_width"]
     )
-    right_column_plan = fragment["section"] == "next" and region_left > geometry["left"]
-    if not full_width_row and (_section_is_issue(fragment["section"]) or right_column_plan):
-        # Plans in the right column share the outer-right title position with
-        # issues. Full-width rows and plans in the left column keep left titles.
+    if not full_width_row and _section_is_issue(fragment["section"]):
+        # Only issue columns use outer-right titles; plans retain left titles.
         coordinates["left"] = region_right - coordinates["label_width"]
         coordinates["body_left"] = region_left
     return coordinates
@@ -2971,6 +2896,8 @@ def _flow_page_geometry_matches(shapes: dict[str, Any], fragments: list[dict[str
         )
         region_left = min(label.left, body.left)
         region_right = max(label.left + label.width, body.left + body.width)
+        if region_left > geometry["left"] and not _section_is_issue(fragment["section"]):
+            return False
         label_line_height = fragment["line_height"] if fragment.get("compact_label", False) else PPT_FLOW_LABEL_LINE_HEIGHT
         label_minimum = (len(label.text_frame.paragraphs) * label_line_height
                          + label.text_frame.margin_top + label.text_frame.margin_bottom)
@@ -3404,7 +3331,7 @@ def _generation_qa(
                             "severity": "warning", "code": "generated_layout_mismatch", "label": "生成栏目布局不一致",
                             "file": group["source"]["file"], "slide": group["source"]["slide"],
                             "location": f"单列第 {page_index + 1} 页", "project": group["project"]["title"],
-                            "detail": "正文框、标签或边框未对齐，或栏目间距、正文区底部位置不符。",
+                            "detail": "正文框、标签或边框未对齐，栏目间距、正文区底部位置不符，或右侧放置了本周问题以外的栏目。",
                             "suggestion": "系统已按分页结果恢复栏目尺寸，请确认最终审核结果。",
                         })
                     for entry in _flatten_shapes(group["slides"][page_index].shapes):

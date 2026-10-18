@@ -578,6 +578,50 @@ def test_flow_heading_moves_with_following_body_when_page_has_one_line_left() ->
     assert len(pages[1][0]["paragraphs"]) >= 2
 
 
+def test_tall_progress_keeps_next_week_plan_in_the_left_column() -> None:
+    sections = {
+        "current": [_flow_test_paragraph(f"完成第{index}项开发。") for index in range(16)],
+        "next": [_flow_test_paragraph("继续联调并安排验收。")],
+        "issues": [_flow_test_paragraph("无")],
+    }
+    geometry = {
+        "left": Pt(20), "top": Pt(100), "bottom": Pt(500),
+        "label_width": Pt(32), "body_left": Pt(58), "body_width": Pt(900),
+    }
+
+    pages = _flow_page_plan(sections, geometry)
+
+    assert len(pages) == 1
+    fragments = {item["section"]: item for item in pages[0]}
+    current, plan, issues = (fragments[key] for key in ("current", "next", "issues"))
+    assert current["left"] == plan["left"] == geometry["left"]
+    assert plan["top"] >= current["top"] + current["height"] + Pt(6)
+    assert issues["left"] > plan["body_left"] + plan["body_width"]
+    assert [item["text"] for item in plan["paragraphs"]] == ["继续联调并安排验收。"]
+
+
+def test_empty_next_week_plan_stays_left_after_pagination() -> None:
+    sections = {
+        "current": [_flow_test_paragraph(f"完成第{index}项开发。") for index in range(60)],
+        "next": [_flow_test_paragraph("无")],
+    }
+    geometry = {
+        "left": Pt(20), "top": Pt(100), "bottom": Pt(500),
+        "label_width": Pt(32), "body_left": Pt(58), "body_width": Pt(900),
+    }
+
+    pages = _flow_page_plan(sections, geometry)
+
+    assert len(pages) > 1
+    assert all(fragment["left"] == geometry["left"] for page in pages for fragment in page)
+    assert {fragment["section"] for fragment in pages[-1]} == {"current", "next"}
+    plans = [fragment for page in pages for fragment in page if fragment["section"] == "next"]
+    assert len(plans) == 1
+    assert [item["text"] for item in plans[0]["paragraphs"]] == ["无"]
+    assert [item["text"] for page in pages for fragment in page if fragment["section"] == "current"
+            for item in fragment["paragraphs"]] == [item["text"] for item in sections["current"]]
+
+
 def test_flow_columns_share_extra_height_by_visual_lines() -> None:
     sections = {
         "current": [_flow_test_paragraph("完成交付")],
