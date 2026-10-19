@@ -154,10 +154,12 @@ def _clean_line(value: str) -> str:
 
 def _has_ordered_prefix(value: str) -> bool:
     """Return whether a paragraph already carries an explicit ordered marker."""
+    # 中文编号只能由数字组成，不能把“新增业务总览、业务拓扑”等正文当作编号。
+    chinese_numerals = "零〇一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟"
     return bool(re.match(
         r"^(?:(?:\d+|[A-Za-z])[\s]*[.\uFF0E、)]|"
-        r"[\(（](?:\d+|[A-Za-z一-鿿]+)[\)）]|"
-        r"[一-鿿]+[、.\uFF0E])\s*",
+        rf"[\(（](?:\d+|[A-Za-z]+|[{chinese_numerals}]+)[\)）]|"
+        rf"[{chinese_numerals}]+[、.\uFF0E])\s*",
         _text(value),
     ))
 
@@ -1365,6 +1367,8 @@ def process_weekly_report(
                      else ("project", str(project_index)))
         reporter_groups.setdefault(group_key, []).append(project)
     meeting_results = [project for group in reporter_groups.values() for project in group]
+    # 广西团队固定放在周例会最后，其他项目保留汇报人归组后的相对顺序。
+    meeting_results.sort(key=lambda project: project.get("meeting_only") == "guangxi")
     for project in deck_results + meeting_results:
         if len(project["source_files"]) > 1:
             all_issues.append({"severity": "warning", "code": "multiple_sources", "label": "多个源文件合并", "file": "、".join(project["source_files"]), "slide": 0, "location": project["title"], "project": project["title"], "detail": "同一项目来自多个周报文件，系统按源文件和页码顺序合并。", "suggestion": "确认这些文件是否是同一项目的不同内容页。"})
@@ -4206,9 +4210,13 @@ def _meeting_body_paragraph(
     template, value: str, key: str, slides: list[dict[str, Any]], source_style: dict[str, Any] | None,
     *, color: str | None = None, default_bullet: bool = True,
 ):
-    """Render true list levels with a hanging indent, keeping headings unbulleted."""
+    """Apply section bullets to plain body text while preserving headings and continuations."""
     style = source_style or {}
     kind = style.get("kind", "list" if default_bullet else "body")
+    # 源 PPT 的首条或问题正文可能没有列表属性；会议纪要仍统一补圆点。
+    # 仅提升普通正文，保留子标题、软换行续行及非列表补充栏目的语义。
+    if default_bullet and kind == "body":
+        kind = "list"
     level = max(0, min(8, int(style.get("level", 0))))
     heading = kind == "heading"
     marker = kind == "list" and not _has_ordered_prefix(value)
