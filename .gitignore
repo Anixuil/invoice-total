@@ -1,2 +1,9 @@
 __pycache__/
 dist/
+.env
+.env.*
+!.env.example
+data/jira-creator/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

@@ -11,3 +11,8 @@ sample_invoice.pdf
 make_sample_invoice.py
 image_ppt_processor.py
 static/image-to-ppt.html
+.env.*
+data
+**/*.sqlite3
+**/*.sqlite3-wal
+**/*.sqlite3-shm

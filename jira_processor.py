@@ -53,10 +53,11 @@ DEFAULT_ROSTER = [
     "mojunyou",
     "chenyu",
     "muzhengyi",
+    "limenghao",
 ]
 
 # 每日汇总不再统计已移出名单的账号；周报名单保持不变。
-DAILY_EXCLUDED_USERS = {"ruishunzi", "mojunyou"}
+DAILY_EXCLUDED_USERS = {"ruishunzi", "mojunyou", "caiyuanpeng"}
 DAILY_ROSTER = [name for name in DEFAULT_ROSTER if name not in DAILY_EXCLUDED_USERS]
 
 WEEKLY_ROSTER = [
@@ -68,6 +69,7 @@ WEEKLY_ROSTER = [
     ("lihongqi", "李红旗"), ("liwenbo", "李文波"), ("chenyu", "陈愉"),
     ("linyuping", "林宇萍"), ("wuyutian", "吴宇天"),
     ("caoyuan", "曹原"), ("liuxin01", "刘昕"),
+    ("limenghao", "李梦豪"),
 ]
 WEEKLY_NAME_MAP = dict(WEEKLY_ROSTER, **{"liuying": "刘颖"})
 WEEKLY_FILE_KEYS = {

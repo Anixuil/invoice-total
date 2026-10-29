@@ -16,6 +16,8 @@ $requiredFiles = @(
     "docker-compose.yml",
     ".dockerignore",
     "requirements.txt",
+    ".env.example",
+    "README.md",
     "server.py",
     "invoice_total.py",
     "jira_processor.py",
@@ -25,7 +27,8 @@ $requiredFiles = @(
 
 $requiredDirectories = @(
     "static",
-    "templates"
+    "templates",
+    "jira_creator"
 )
 
 try {

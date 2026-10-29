@@ -8,6 +8,7 @@ const pageAsset = (page, extension) => `/static/pages/${page}.${extension}?v=${e
 const routes = new Map([
   ['/', { page: 'invoice', title: '发票合计 · 本地核算工具' }],
   ['/jira', { page: 'jira', title: 'Jira 数据处理 · 本地工具' }],
+  ['/jira-create', { page: 'jira-create', title: 'Jira 批量建单 · 本地工具' }],
   ['/weekly-report', { page: 'weekly-report', title: '周报整合 · 本地工具' }],
   ['/reimbursement', { page: 'reimbursement', title: '报销单生成' }],
   ['/image-to-ppt', { page: 'image-to-ppt', title: '图片转 PPT · 本地工具' }],
@@ -219,6 +220,18 @@ window.addEventListener('popstate', () => {
   void navigate(location.href, 'pop');
 });
 retry.addEventListener('click', () => { if (failedUrl) void navigate(failedUrl); });
+// Account changes invalidate only the authenticated tool, including detached pages.
+window.addEventListener('jira-creator-auth-changed', () => {
+  navigation += 1;
+  const instance = instances.get('jira-create');
+  if (instance) instance.page.destroy();
+  instances.delete('jira-create');
+  if (current?.route.page === 'jira-create') {
+    current = null;
+    outlet.replaceChildren();
+    void navigate(location.href, 'initial');
+  }
+});
 window.addEventListener('pagehide', event => {
   if (event.persisted) return;
   navigation += 1;

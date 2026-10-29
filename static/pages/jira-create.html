@@ -1,0 +1,76 @@
+<div class="jc">
+  <header class="hero">
+    <p class="eyebrow">从材料到行动 · JIRA</p>
+    <h1>Jira 批量建单</h1>
+    <p class="hero-copy">提炼事项，逐条复核，再提交到你的 Jira 项目。</p>
+  </header>
+  <div class="jc-notice" role="status" aria-live="polite" data-notice>正在读取登录状态…</div>
+  <section class="jc-login panel" data-login hidden>
+    <div><span class="jc-step">01 / 登录</span><h2>进入你的建单工作台</h2><p>使用管理员分配的平台账号。Jira 凭据和模型配置登录后单独设置。</p></div>
+    <form data-login-form>
+      <label>平台账号<input name="username" autocomplete="username" required maxlength="80"></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password"></label>
+      <button class="primary-button" type="submit">登录工作台</button>
+    </form>
+  </section>
+  <section class="jc-login panel" data-password-screen hidden>
+    <div><span class="jc-step">账号设置</span><h2>请设置登录密码</h2><p>密码不限制长度，保存后重新登录。</p></div>
+    <form data-force-password>
+      <label>当前密码<input name="current_password" type="password" autocomplete="current-password"></label>
+      <label>新密码<input name="password" type="password" autocomplete="new-password"></label>
+      <button class="primary-button" type="submit">修改密码</button>
+      <button class="ghost-button" type="button" data-action="logout">退出登录</button>
+    </form>
+  </section>
+  <div data-authenticated hidden>
+    <div class="jc-account"><span data-account></span><div><button class="ghost-button" data-action="clear-work">新建批次 / 清空</button><button class="ghost-button" data-action="password">修改密码</button><button class="ghost-button" data-action="logout">退出</button></div></div>
+    <nav class="jc-tabs" aria-label="建单工作区">
+      <button type="button" data-tab="work" aria-current="page">建单工作台</button>
+      <button type="button" data-tab="config">我的配置与模板</button>
+      <button type="button" data-tab="history">草稿与历史</button>
+      <button type="button" data-tab="admin" data-admin hidden>账号管理</button>
+    </nav>
+    <section data-pane="work">
+      <div class="jc-profile-bar panel">
+        <label>本次建单方案<select data-profile><option value="">请选择方案</option></select></label>
+        <div class="jc-target" data-target>先在“我的配置与模板”中建立连接和方案。</div>
+        <button class="ghost-button" data-action="metadata">读取项目与字段</button>
+      </div>
+      <details class="jc-defaults panel" open><summary>本次默认值 <small>只影响本次操作；行内值优先</small></summary><div class="jc-fields" data-defaults></div></details>
+      <section class="jc-source panel">
+        <div class="jc-section-head"><div><span class="jc-step">01 / 输入材料</span><h2>从文字与截图提炼问题</h2></div><div class="jc-actions"><label class="ghost-button jc-upload">选择文件<input data-files type="file" multiple accept=".txt,.md,.docx,.xlsx,.pdf,.png,.jpg,.jpeg,.webp" hidden></label><button class="ghost-button" data-action="paste">粘贴截图</button></div></div>
+        <p class="jc-muted">支持文本、Word、Excel、PDF 和截图。每批最多 10 个文件，单文件 20 MB，总计 50 MB。</p>
+        <textarea data-raw rows="7" maxlength="100000" placeholder="粘贴会议纪要、需求清单或聊天记录；也可以在这里 Ctrl+V 粘贴截图。识别文字可在发送给模型前修正。"></textarea>
+        <div class="jc-recognition-progress" data-processing="source" role="status" aria-live="polite" hidden><strong>图文识别</strong><progress max="100"></progress><span></span></div><div class="jc-recognition-progress" data-processing="extract" role="status" aria-live="polite" hidden><strong>AI 问题提炼</strong><progress max="100"></progress><span></span></div><details class="jc-evidence"><summary data-source-summary>原始图文证据（可展开核对，不是 Jira 提炼结果）</summary><div data-source-results></div></details><label class="jc-check"><input type="checkbox" data-auto-extract checked>文件解析完成后自动提炼 Jira 问题并分类</label>
+        <div class="jc-toolbar"><span data-model class="jc-muted">手工建单不需要模型配置。</span><div><select data-extract-mode aria-label="提炼结果处理方式"><option value="append">追加提炼结果</option><option value="replace">替换现有事项</option></select><button class="primary-button" data-action="extract">AI 提炼问题</button></div></div>
+      </section>
+      <section class="jc-review panel">
+        <div class="jc-section-head"><div><span class="jc-step">02 / 人工复核</span><h2>待创建事项 <span data-row-count>0</span></h2></div><div class="jc-actions"><button class="ghost-button" data-action="add-row">新增行</button><button class="ghost-button" data-action="invert">反选</button><button class="ghost-button" data-action="delete-rows">删除选中</button><button class="ghost-button" data-action="bulk">批量修改</button></div></div>
+        <div class="jc-toolbar"><label>按问题分类查看<select data-category-filter><option value="">全部问题</option><option value="frontend">前端</option><option value="backend">后端</option><option value="c_algorithm">C 算法（探针）</option><option value="unclassified">待确认</option></select></label><span data-category-counts class="jc-muted"></span></div><div class="jc-table-wrap"><table class="jc-grid"><thead><tr><th><input type="checkbox" data-select-all aria-label="全选事项"></th><th>项目</th><th>类型 ID</th><th>标题</th><th>问题分类</th><th>优先级 ID</th><th>经办人账号</th><th>截止日期</th><th>状态 / 操作</th></tr></thead><tbody data-rows></tbody></table></div>
+        <div class="jc-empty" data-empty>从上方提炼事项，或点击“新增行”手工填写。</div>
+        <div class="jc-submit"><span data-selection>已选 0 条</span><div class="jc-actions"><button class="ghost-button" data-action="save-draft">保存草稿</button><button class="ghost-button" data-action="validate">校验选中项</button><button class="primary-button" data-action="submit">提交选中项到 Jira</button></div></div>
+        <div class="jc-progress" data-progress hidden><progress max="100" value="0"></progress><span></span></div>
+      </section>
+    </section>
+    <section data-pane="config" hidden>
+      <div class="jc-section-head"><div><h2>我的连接</h2><p class="jc-muted">凭据只保存在你的账号下；已保存凭据不回显。</p></div><div class="jc-actions"><button class="primary-button" data-action="new-jira">新增 Jira 连接</button><button class="ghost-button" data-action="new-llm">新增模型连接</button></div></div>
+      <div class="jc-cards" data-connections></div>
+      <div class="jc-section-head"><div><h2>建单方案</h2><p class="jc-muted">组合连接、默认值、人员字典与企业字段映射。</p></div><button class="primary-button" data-action="new-profile">新增方案</button></div>
+      <div class="jc-cards" data-profiles></div>
+      <div class="jc-section-head"><div><h2>公共模板</h2><p class="jc-muted">复制后补充自己的凭据；模板更新不会覆盖个人副本。</p></div><button class="ghost-button" data-action="new-template" data-admin hidden>发布模板</button></div>
+      <div class="jc-cards" data-templates></div>
+    </section>
+    <section data-pane="history" hidden>
+      <div class="jc-section-head"><h2>我的草稿</h2><button class="ghost-button" data-action="refresh-history">刷新</button></div>
+      <div class="jc-cards" data-drafts></div>
+      <div class="jc-section-head"><h2>处理记录</h2><div><button class="ghost-button" data-action="history-prev">上一页</button><button class="ghost-button" data-action="history-next">下一页</button></div></div>
+      <div data-jobs></div>
+      <div data-job-detail></div>
+    </section>
+    <section data-pane="admin" hidden>
+      <div class="jc-section-head"><div><h2>平台账号</h2><p class="jc-muted">管理员管理账号，不读取其他用户的个人配置。</p></div><button class="primary-button" data-action="new-user">创建账号</button></div>
+      <div data-users></div>
+    </section>
+  </div>
+  <dialog class="jc-dialog" data-dialog><form data-dialog-form><header><h2 data-dialog-title></h2><button type="button" class="ghost-button" data-dialog-close aria-label="关闭">关闭</button></header><div data-dialog-body></div><p class="jc-error" data-dialog-error role="alert"></p><footer><button type="button" class="ghost-button" data-dialog-cancel>取消</button><button class="primary-button" type="submit" data-dialog-submit>保存</button></footer></form></dialog>
+</div>

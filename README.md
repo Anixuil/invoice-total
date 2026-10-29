@@ -32,7 +32,98 @@ ZIP 内的结果会以 `发票包.zip / 目录 / 发票.pdf` 的形式显示。�
 - `http://localhost:8000/jira`：Jira 数据处理
 - `http://localhost:8000/weekly-report`：周报生成与核验
 
-## Jira 数据处理
+## Jira 批量建单（独立登录模块）
+
+访问 `/jira-create`，使用管理员分配的平台账号登录。此模块与现有 Jira Excel 统计、发票、周报、报销和图片转 PPT 功能相互独立；原有接口不要求登录。默认开启新模块；缺少主密钥或初始管理员配置时只禁用新模块并显示原因，旧功能继续提供服务。显式设置 `JIRA_CREATOR_ENABLED=false` 可以关闭新模块。
+
+### Windows PowerShell 本地命令行运行
+
+在项目目录使用项目自己的虚拟环境安装依赖，无需激活虚拟环境：
+
+```powershell
+Set-Location 'D:\code\self\all\invoice-total'
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+if (-not (Test-Path -LiteralPath '.env')) {
+    Copy-Item -LiteralPath '.env.example' -Destination '.env'
+}
+```
+
+第一次配置时生成主密钥，将输出复制到 `.env` 的 `JIRA_CREATOR_MASTER_KEY`；已有数据库必须继续使用原密钥，不能换成新生成的值：
+
+```powershell
+.\.venv\Scripts\python.exe -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+notepad .env
+```
+
+在 `.env` 中填写以下内容，其余配置可保留模板默认值：
+
+```dotenv
+JIRA_CREATOR_ENABLED=true
+JIRA_CREATOR_MASTER_KEY=填写刚生成的密钥
+JIRA_CREATOR_ADMIN_USERNAME=admin
+JIRA_CREATOR_ADMIN_PASSWORD=填写你自己的密码
+JIRA_CREATOR_ALLOWED_ORIGINS=http://jira.kingsware.cn,https://api.deepseek.com
+```
+
+服务地址白名单按实际 Jira 和模型服务调整；这里只设置允许访问的服务来源，具体 Jira 凭据和模型 API Key 登录后在页面保存。密码含 `#` 等特殊字符时使用单引号包裹 dotenv 值。
+
+保存配置后启动：
+
+```powershell
+uvicorn server:app --reload --port 8000
+```
+
+打开 `http://127.0.0.1:8000/jira-create`，使用配置的管理员账号和初始密码登录，登录后直接进入工作台。新模块启动时自动读取项目根目录的 `.env`，无需 `--env-file`；只载入 `JIRA_CREATOR_*` 配置，不修改其他工具的环境设置。已有进程环境变量优先于 `.env`。以后执行上述启动命令即可；`.env` 和数据库需要保留，修改 `.env` 后停止进程并重新启动。不要同时运行多个使用同一数据目录的服务。
+
+依赖应安装到 `uvicorn` 对应的 Python 环境。如果命令来自全局 `D:\python\Scripts\uvicorn.exe`，使用 `D:\python\python.exe -m pip install -r requirements.txt` 安装依赖；使用项目虚拟环境时，先执行 `.\.venv\Scripts\Activate.ps1`，然后继续使用同一条 `uvicorn server:app --reload --port 8000` 命令。
+
+### 启用与部署
+
+1. 安装更新后的 Python 依赖。新增依赖为 Pydantic v2、httpx、argon2-cffi、cryptography、python-dotenv，文档解析和本地 OCR 沿用现有依赖。
+2. 把 `.env.example` 复制成 `.env`，模块默认开启。Docker Compose 自动使用此文件；本地命令行运行时由新模块自动加载其中的 `JIRA_CREATOR_*` 配置，也可以直接设置同名进程环境变量。
+3. 生成并保存独立的 Fernet 主密钥：`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`，填入 `JIRA_CREATOR_MASTER_KEY`。此命令仅生成密钥，不要把实际密钥写入仓库。
+4. 设置初始管理员用户名和密码：`JIRA_CREATOR_ADMIN_USERNAME`、`JIRA_CREATOR_ADMIN_PASSWORD`。平台密码不限制长度或字符组合，也允许沿用原密码。只在数据库无账号时创建；账号密码匹配即可登录，不强制改密，也不限制登录尝试次数。初始化后可移除初始密码环境变量，它不能用于覆盖已有密码。
+5. `JIRA_CREATOR_ALLOWED_ORIGINS` 填写允许连接的 Jira/模型服务来源，以逗号分隔，包含协议与非默认端口，例如 `http://jira.example.internal,https://api.example.com`。模型的 `/v1` 路径填写在页面连接配置中，白名单只写来源。允许明确配置的企业内网来源，不跟随重定向，不继承环境代理。
+6. 使用反向代理时将 `JIRA_CREATOR_PUBLIC_ORIGIN` 设置为用户浏览器访问的来源地址；HTTPS 入口将 `JIRA_CREATOR_COOKIE_SECURE` 设为 `true`。未配置外部来源时按当前请求地址检查同源写操作。
+7. 保持单实例、单 Uvicorn worker。数据目录持有实例锁，重复实例不能启用新模块。Compose 数据卷 `invoice-total-jira-creator` 持久化 `/app/data/jira-creator`；原生默认目录为工作目录下 `data/jira-creator`，可通过 `JIRA_CREATOR_DATA_DIR` 指定。
+
+主密钥必须随服务重启保持不变，并与数据库分别备份。密钥校验失败时只禁用新模块。停用新模块可将开关设为 `false` 后重启；不会删除数据库。备份 SQLite 时先停止服务或使用 SQLite 在线备份机制，不要仅复制运行中的主数据库文件而遗漏 WAL。后续数据库迁移前必须备份；当前 schema 版本为 1。
+
+### 账号、配置与模板
+
+新增连接和公共模板默认使用文档中的 Jira 地址 `http://jira.kingsware.cn`、模型接口 `https://api.deepseek.com/v1` 及模型名 `deepseek-chat`，均可在页面修改。未设置服务地址白名单时默认允许这两个服务来源；已有连接配置不会被覆盖。
+
+服务启动时会为已有账号补齐尚未初始化的默认连接，并为没有方案的账号创建“默认建单方案”（默认项目 KECC）；新账号创建时也会初始化。首次初始化同时提供一份不含凭据的公共模板。初始化有持久化标记，不会在后续重启时覆盖修改或恢复主动删除的配置。默认连接会直接显示在“我的连接”列表中，编辑后补充 Jira 用户名、密码和模型 API Key 即可；问题类型与优先级 ID 通过实际 Jira 元数据选择，不预设未经确认的 ID。
+
+- 管理员在“账号管理”创建、停用账号及重置密码；不开放注册，不允许停用或降级最后一个有效管理员。改密、重置、停用后撤销相关会话。登录会话有效期为 8 小时。
+- 在“我的配置与模板”新增 Jira 连接（Basic Auth）、模型连接（兼容 Chat Completions），填写自己的凭据，保存后点击“检查连接”。模型检查会发起一次简短模型请求。
+- 新增建单方案，关联连接、设置默认字段和“中文名=真实 Jira 账号”的人员字典。读取项目及类型后，在输入框候选提示中选择实际 ID。自定义字段按项目、问题类型和 `customfield_*` ID 映射，支持文本、数字、日期、人员和选项。
+- 管理员可发布不含凭据的公共模板。用户复制后补全个人 Jira 用户名、密码和模型密钥。副本独立于原模板，模板更新不覆盖个人修改。
+- 已保存的凭据不回显；留空表示保留，勾选“明确清除”才清除。配置修改采用版本检查，避免不同页面互相覆盖。
+
+### 使用流程与限制
+
+测试报告支持读取 Word 正文、表格及内嵌截图 OCR，并按文档顺序把截图文字关联到相邻问题。上传后默认自动调用所选模型提炼（可取消勾选），原始证据折叠展示；提炼结果区分前端、后端、C 算法（探针）及待确认，支持筛选和手工修改。每项保留分类依据、业务模块、复现步骤、实际/预期结果、验收标准及来源，创建 Jira 时写入描述。分类是建议责任方向，不代表已验证根因。当前图像理解使用本地 OCR，图片颜色、布局等纯视觉信息不能由 OCR 确认；识别失败会提示人工核对。旧解析任务不会自动补读截图，升级后需重新上传报告。
+
+选择方案 → 输入文本/上传材料 → 核对识别文字 → AI 提炼或手工添加 → 编辑表格/详情 → 校验选中项 → 确认创建。行内值优先于本次默认值，再优先于保存的方案默认值；显式清空表示不提交该可选字段。变更方案不会自动覆盖已编辑的行。
+
+支持 TXT、Markdown、DOCX、XLSX、PDF、PNG、JPEG、WEBP。每批最多 10 个文件，单文件 20 MB，总计 50 MB，PDF 总计最多 100 页，提取文字最多 10 万字符，最多创建 100 条事项。Office 展开体积上限为 200 MB，Excel 最多 10 万个单元格。Excel 使用缓存值，不执行公式；无缓存的公式单元格可能为空。PDF 无有效文本层时执行本地 OCR，低置信度内容标注待核对。不支持 ZIP、旧版 DOC/XLS、自动附件上传或父子任务创建。
+
+材料先在本地解析；只有点击“AI 提炼事项”才将识别文字发送给所选模型。模型返回经结构校验后进入待复核表格，不直接创建 Jira。没有模型连接时仍可手工建单。支持 `json_object` 和 `json_schema` 两种输出模式，服务商不支持所选模式时会明确报错。
+
+本功能适配 Jira Server/Data Center REST API v2；按 Jira 版本选择元数据接口，依据实际账号权限、创建界面和必填字段校验。第一版不支持 Cloud REST API v3，以及级联选项、插件对象等复杂自定义字段；不支持的必填字段会阻止对应行创建。
+
+后台任务采用每账号一个创建批次、Jira 总并发 3、模型总并发 2、文档/OCR 单独一个进程，总待处理任务最多 50。页面轮询真实状态。原始上传和解析文字默认在 24 小时后清理（清理周期 10 分钟，活动任务除外）；手工保存的草稿、配置、提炼结果和建单历史持续保存。
+
+成功、明确失败和“结果待核实”分开记录。网络超时或服务重启可能发生在 Jira 已创建之后，因此不自动重试待核实事项。进入历史详情，关联已有 Issue Key，或先在 Jira 确认未创建后再显式重试。明确失败项可修正后重试；成功项不会重复提交。任务中途失败不会删除已经创建的 Jira。
+
+新增接口均位于 `/api/jira-create`：`auth`、`admin/users`、`admin/templates`、`templates`、`connections`、`profiles`、`metadata`、`sources`、`extract`、`validate`、`drafts`、`batch-create`、`jobs`。所有个人资源按服务端登录身份过滤，客户端不能指定归属账号。浏览器切换账号或退出时清空新模块缓存，旧工具页面状态保持原样。
+
+### 验收边界
+
+本次实现按项目要求仅进行静态代码 review，没有执行测试、构建、lint、类型检查，没有访问真实 Jira 或模型。部署后需要人工确认：双账号隔离、初始改密/重置/停用、各类材料识别、实际项目字段与人员、部分失败和超时核实、重启后历史恢复，以及旧工具原有操作。
+
+## Jira Excel 数据处理
 
 Jira 页面接收 `.xlsx` 导出文件，并按既定表格流程自动完成：
 

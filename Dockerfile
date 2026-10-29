@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
@@ -22,17 +22,20 @@ RUN find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i
 
 COPY requirements.txt ./
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-RUN python -m pip install --upgrade pip \
-        --index-url ${PIP_INDEX_URL} \
-    && python -m pip install -r requirements.txt \
-        --index-url ${PIP_INDEX_URL}
+# BuildKit keeps downloads across rebuilds without adding them to the image.
+RUN --mount=type=cache,id=invoice-total-pip,target=/root/.cache/pip,sharing=locked \
+    python -m pip install -r requirements.txt \
+        --index-url "${PIP_INDEX_URL}"
 
 COPY invoice_total.py jira_processor.py weekly_report_processor.py reimbursement_generator.py server.py ./
+COPY jira_creator ./jira_creator
 COPY static ./static
 COPY templates ./templates
+# Include deployment settings; keep this image private.
+COPY .env /app/.env
 
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /tmp/invoice_total_preview_jobs /tmp/invoice_total_jira_jobs /tmp/invoice_total_weekly_jobs \
+    && mkdir -p /app/data/jira-creator /tmp/invoice_total_preview_jobs /tmp/invoice_total_jira_jobs /tmp/invoice_total_weekly_jobs \
     && chown -R appuser:appuser /app /tmp/invoice_total_preview_jobs /tmp/invoice_total_jira_jobs /tmp/invoice_total_weekly_jobs
 
 USER appuser

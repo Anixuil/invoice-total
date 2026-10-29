@@ -71,6 +71,10 @@ else:
 
 app = FastAPI(title="本地文件处理工具", version="1.1.0")
 
+from jira_creator import install as install_jira_creator
+
+install_jira_creator(app)
+
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 MAX_SIZE = 20 * 1024 * 1024  # 20MB
@@ -150,6 +154,11 @@ async def jira_index():
     return FileResponse(STATIC / "app.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
+@app.get("/jira-create")
+async def jira_create_index():
+    return FileResponse(STATIC / "app.html", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/weekly-report")
 async def weekly_report_index():
     return FileResponse(
@@ -172,7 +181,9 @@ async def image_to_ppt_index():
 
 @app.get("/api/ui-config")
 async def ui_config():
-    return {"image_to_ppt_available": IMAGE_PPT_AVAILABLE}
+    return {"image_to_ppt_available": IMAGE_PPT_AVAILABLE,
+            "jira_creator_available": app.state.jira_creator is not None,
+            "jira_creator_message": app.state.jira_creator_error}
 
 
 def _cleanup_image_ppt_jobs() -> None:

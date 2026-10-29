@@ -3,16 +3,25 @@ services:
     image: invoice-total:latest
     build:
       context: .
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.aliyun.com/debian}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
     container_name: invoice-total
     restart: unless-stopped
     ports:
       - "7287:7287"
+    environment:
+      # Other settings load from the .env bundled in the image.
+      # Keep persistent data on the container volume regardless of local settings.
+      JIRA_CREATOR_DATA_DIR: /app/data/jira-creator
     volumes:
       - invoice-total-tmp:/tmp/invoice_total_preview_jobs
       - invoice-total-jira-tmp:/tmp/invoice_total_jira_jobs
       - invoice-total-weekly-tmp:/tmp/invoice_total_weekly_jobs
+      - invoice-total-jira-creator:/app/data/jira-creator
 
 volumes:
   invoice-total-tmp:
   invoice-total-jira-tmp:
   invoice-total-weekly-tmp:
+  invoice-total-jira-creator:
