@@ -80,7 +80,7 @@ uvicorn server:app --reload --port 8000
 ### 启用与部署
 
 1. 安装更新后的 Python 依赖。新增依赖为 Pydantic v2、httpx、argon2-cffi、cryptography、python-dotenv，文档解析和本地 OCR 沿用现有依赖。
-2. 把 `.env.example` 复制成 `.env`，模块默认开启。Docker Compose 自动使用此文件；本地命令行运行时由新模块自动加载其中的 `JIRA_CREATOR_*` 配置，也可以直接设置同名进程环境变量。
+2. 把 `.env.example` 复制成 `.env` 并填写配置，模块默认开启。Docker Compose 启动时将此文件只读挂载到 `/app/.env`，应用加载其中的 `JIRA_CREATOR_*` 配置；配置文件不再打包进镜像，构建镜像无需 `.env`，启动容器前必须准备好此文件并确保容器用户（UID 10001）可读。修改配置后执行 `docker compose up -d --force-recreate`，无需重新构建镜像。已有数据库必须保留原主密钥。本地命令行运行时同样自动加载这些配置，也可以直接设置同名进程环境变量。
 3. 生成并保存独立的 Fernet 主密钥：`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`，填入 `JIRA_CREATOR_MASTER_KEY`。此命令仅生成密钥，不要把实际密钥写入仓库。
 4. 设置初始管理员用户名和密码：`JIRA_CREATOR_ADMIN_USERNAME`、`JIRA_CREATOR_ADMIN_PASSWORD`。平台密码不限制长度或字符组合，也允许沿用原密码。只在数据库无账号时创建；账号密码匹配即可登录，不强制改密，也不限制登录尝试次数。初始化后可移除初始密码环境变量，它不能用于覆盖已有密码。
 5. `JIRA_CREATOR_ALLOWED_ORIGINS` 填写允许连接的 Jira/模型服务来源，以逗号分隔，包含协议与非默认端口，例如 `http://jira.example.internal,https://api.example.com`。模型的 `/v1` 路径填写在页面连接配置中，白名单只写来源。允许明确配置的企业内网来源，不跟随重定向，不继承环境代理。

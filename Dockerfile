@@ -31,8 +31,6 @@ COPY invoice_total.py jira_processor.py weekly_report_processor.py reimbursement
 COPY jira_creator ./jira_creator
 COPY static ./static
 COPY templates ./templates
-# Include deployment settings; keep this image private.
-COPY .env /app/.env
 
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/data/jira-creator /tmp/invoice_total_preview_jobs /tmp/invoice_total_jira_jobs /tmp/invoice_total_weekly_jobs \

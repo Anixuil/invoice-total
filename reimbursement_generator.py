@@ -5,15 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 import re
+import unicodedata
 
 import fitz
 from docx import Document
+from fontTools.ttLib import TTCollection
 
 
 LABELS = {
     "报销编号": "reimbursement_number", "报销人": "claimant", "所属部门": "department",
+    "工单号": "reimbursement_number", "申请人": "claimant", "申请部门": "department",
+    "本次支出金额": "total_amount", "支出类型明细": "expense_type",
     "申请组织": "organization", "费用承担部门": "cost_department", "币别": "currency",
     "填报日期": "report_date", "工作性质": "work_type", "项目类型": "project_type",
     "所属项目": "project", "所属客户": "client", "合同号/立项号": "contract_number",
@@ -21,7 +27,7 @@ LABELS = {
     "合同号": "contract_number", "立项号": "contract_number",
     "备注": "notes", "报销总金额": "total_amount",
 }
-DETAIL_LABELS = {"类型": "type", "用途": "purpose", "金额": "amount"}
+DETAIL_LABELS = {"类型": "type", "用途": "purpose", "类型用途": "purpose", "金额": "amount"}
 CN_DIGITS = "零壹贰叁肆伍陆柒捌玖"
 CN_UNITS = ("", "拾", "佰", "仟")
 CN_BIG_UNITS = ("", "万", "亿")
@@ -79,7 +85,7 @@ def _looks_like_label(value: str) -> bool:
     return (
         key in LABELS
         or key in DETAIL_LABELS
-        or key == "报销明细"
+        or key in {"报销明细", "用途明细"}
         or value.strip().endswith((":", "："))
     )
 
@@ -92,11 +98,11 @@ def _parse_reimbursement_lines(lines: list[str]) -> Reimbursement:
     index = 0
     while index < len(lines):
         key = _label(lines[index])
-        if key == "报销明细":
+        if key in {"报销明细", "用途明细"}:
             details_started = True
             index += 1
             continue
-        if details_started and re.fullmatch(r"报销明细\d+", key):
+        if details_started and re.fullmatch(r"(?:报销明细|用途明细)\d+", key):
             if detail and (detail.type or detail.purpose or detail.amount): result.details.append(detail)
             detail = ReimbursementDetail()
             index += 1
@@ -119,6 +125,10 @@ def _parse_reimbursement_lines(lines: list[str]) -> Reimbursement:
         else:
             index += 1
     if detail and (detail.type or detail.purpose or detail.amount): result.details.append(detail)
+    # The expense-request export stores the expense type once above its details.
+    for item in result.details:
+        if not item.type:
+            item.type = result.fields.get("expense_type", "")
     return result
 
 
@@ -208,26 +218,46 @@ def _text(
     fontsize=10,
     preserve_full_text=False,
 ):
-    """Keep text within its cell, shrinking required content instead of cutting it."""
+    """Keep required content readable and complete within its cell."""
     text = str(text or "")
     if preserve_full_text:
         if not text:
             return
-        # A failed insert_textbox call writes nothing, so retry the entire value.
-        # Keep required expense descriptions searchable and readable (at least 6pt).
-        current_size = fontsize
-        while current_size >= 6:
-            if page.insert_textbox(
-                rect,
-                text,
-                fontsize=current_size,
-                fontname=fontname,
-                color=color,
-                align=align,
-            ) >= 0:
-                return
-            current_size -= 0.5
-        raise ValueError("报销明细用途过长，缩小字号后仍无法完整显示，请精简用途内容")
+        # Fill each line by glyph width; textbox word wrapping can move a whole
+        # Chinese phrase to the next line and leave most of the first line empty.
+        # Built-in china-s drawing uses full-width Latin advances, unlike
+        # Font.text_length. Embed the same font used for measuring mixed text.
+        fontname, font = _notes_font(page)
+        if fontname == TEXT_FONT_NAME:
+            fontname = "expense-cjk"
+            page.insert_font(fontname=fontname, fontbuffer=font.buffer)
+        lines = []
+        for paragraph in text.split("\n"):
+            line = ""
+            for char in paragraph:
+                if font.text_length(char, fontsize=fontsize) > rect.width:
+                    raise ValueError("报销明细单元格宽度不足以显示正常字号")
+                if line and font.text_length(line + char, fontsize=fontsize) > rect.width:
+                    lines.append(line)
+                    line = ""
+                line += char
+            lines.append(line)
+        line_height = fontsize * 1.15
+        baseline = rect.y0 + fontsize * font.ascender
+        if baseline + (len(lines) - 1) * line_height - fontsize * font.descender > rect.y1:
+            raise ValueError("报销明细用途过长，正常字号换行后仍超出单元格，请拆分明细或精简用途内容")
+        for index, line in enumerate(lines):
+            width = font.text_length(line, fontsize=fontsize)
+            x = rect.x0
+            if align == fitz.TEXT_ALIGN_CENTER:
+                x += (rect.width - width) / 2
+            elif align == fitz.TEXT_ALIGN_RIGHT:
+                x += rect.width - width
+            page.insert_text(
+                (x, baseline + index * line_height), line,
+                fontsize=fontsize, fontname=fontname, color=color,
+            )
+        return
     truncated = text
     while truncated:
         candidate = truncated if truncated == text else truncated + "…"
@@ -243,10 +273,30 @@ def _text(
         truncated = truncated[:-1].rstrip()
 
 
+@lru_cache(maxsize=4)
+def _simplified_chinese_font(path: Path) -> bytes:
+    """Extract the SC face instead of using a collection's default locale."""
+    collection = TTCollection(str(path), lazy=True)
+    try:
+        for font in collection.fonts:
+            postscript_name = font["name"].getDebugName(6) or ""
+            if "cjksc" in postscript_name.lower():
+                buffer = BytesIO()
+                font.save(buffer)
+                return buffer.getvalue()
+        raise ValueError("Noto 字体集合中未找到简体中文 SC 字体")
+    finally:
+        collection.close()
+
+
 def _notes_font(page) -> tuple[str, fitz.Font]:
     """Register a Song-style mixed CJK font so Latin words are not spaced out."""
     for path in NOTE_FONT_PATHS:
         if path.is_file():
+            if path.suffix.lower() == ".ttc" and path.name.startswith("Noto"):
+                font_data = _simplified_chinese_font(path)
+                page.insert_font(fontname=NOTE_FONT_NAME, fontbuffer=font_data)
+                return NOTE_FONT_NAME, fitz.Font(fontbuffer=font_data)
             page.insert_font(fontname=NOTE_FONT_NAME, fontfile=str(path))
             return NOTE_FONT_NAME, fitz.Font(fontfile=str(path))
     return TEXT_FONT_NAME, fitz.Font(fontname=TEXT_FONT_NAME)
@@ -302,7 +352,7 @@ def render_reimbursement_pdf(
             top, bottom = 184 + row * 30, 202 + row * 30
             expense = f"{detail.type}（{detail.purpose}）" if detail.type and detail.purpose else detail.type or detail.purpose
             _text(
-                page, fitz.Rect(115, top, 310, bottom), expense,
+                page, fitz.Rect(115, top - 5, 307, bottom + 5), expense,
                 align=fitz.TEXT_ALIGN_LEFT, preserve_full_text=True,
             )
             _text(page, fitz.Rect(315, top, 397, bottom), f"{detail.amount:.2f}", fontname="tiro")
@@ -341,8 +391,22 @@ def validate_reimbursement_pdf(
         ))
         check("页数", document.page_count == expected_pages)
         text = "".join(page.get_text("text") for page in document)
+        usage_texts = []
+        for index in range(len(reimbursement.details)):
+            page_index, row = divmod(index, 4)
+            if page_index >= document.page_count:
+                usage_texts.append("（缺少页面）")
+                continue
+            top = 184 + row * 30
+            usage_texts.append(document[page_index].get_text(
+                "text", clip=fitz.Rect(113, top - 6, 310, top + 24),
+            ).strip())
 
     compact_text = re.sub(r"\s+", "", text)
+
+    def normalized_usage(value: str) -> str:
+        # PDF fonts may map full-width punctuation to compatibility forms.
+        return re.sub(r"\s+", "", unicodedata.normalize("NFKC", value))
 
     def contains(name: str, value: str, required: bool = True) -> None:
         if not value:
@@ -369,7 +433,21 @@ def validate_reimbursement_pdf(
     contains("金额大写", "".join(amount_to_template_digits(reimbursement.total)))
     for index, detail in enumerate(reimbursement.details, start=1):
         usage = f"{detail.type}（{detail.purpose}）" if detail.type and detail.purpose else detail.type or detail.purpose
-        contains(f"明细{index}用途", usage)
+        # Compare the complete cell, not the page-wide extraction where other
+        # columns can interrupt a wrapped description's reading order.
+        expected_usage = normalized_usage(usage)
+        check(
+            f"明细{index}用途",
+            bool(expected_usage)
+            and expected_usage == normalized_usage(usage_texts[index - 1]),
+        )
+        if f"明细{index}用途" in errors:
+            # Show the evidence needed to distinguish font mapping failures
+            # from missing content without weakening the validation.
+            errors[-1] = (
+                f"明细{index}用途（原文：{usage!r}；"
+                f"PDF 单元格提取文字：{usage_texts[index - 1]!r}）"
+            )
         contains(f"明细{index}金额", f"{detail.amount:.2f}")
 
     return {"ok": not errors, "checks": checks, "errors": errors}

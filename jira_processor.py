@@ -43,7 +43,6 @@ DEFAULT_ROSTER = [
     "lilixin",
     "fanshuyu",
     "yinwei",
-    "wangruixia",
     "yuhaicheng",
     "caiyuanpeng",
     "ruishunzi",
@@ -63,7 +62,7 @@ DAILY_ROSTER = [name for name in DEFAULT_ROSTER if name not in DAILY_EXCLUDED_US
 WEEKLY_ROSTER = [
     ("zhoujiayu", "周佳宇"), ("zhengleyuan", "郑乐园"), ("douhuanhuan", "窦欢欢"),
     ("sunyanqiang", "孙艳强"), ("lilixin", "李礼辛"), ("linyu01", "林榆"),
-    ("fanshuyu", "范书毓"), ("xiaozhennan", "肖镇楠"), ("wangruixia", "王瑞霞"),
+    ("fanshuyu", "范书毓"), ("xiaozhennan", "肖镇楠"),
     ("yinwei", "尹维"), ("yuhaicheng", "余海城"), ("muzhengyi", "穆政逸"),
     ("guanhaojie", "官浩杰"),
     ("lihongqi", "李红旗"), ("liwenbo", "李文波"), ("chenyu", "陈愉"),

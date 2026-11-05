@@ -270,6 +270,14 @@ def _build_reimbursement_result(source: Path, directory: Path, progress_callback
     outputs: list[Path] = []
     validations = []
     item_span = 54 / total_count
+    used_filenames: set[str] = set()
+
+    def filename_part(value: str, fallback: str) -> str:
+        # Normalize only the download name; preserve the original form fields.
+        cleaned = "".join(
+            char for char in value if char not in '\\/:*?"<>|' and ord(char) >= 32
+        ).strip(" .")
+        return cleaned[:60].rstrip(" .") or fallback
 
     for index, reimbursement in enumerate(reimbursements, start=1):
         item_start = 32 + (index - 1) * item_span
@@ -277,13 +285,18 @@ def _build_reimbursement_result(source: Path, directory: Path, progress_callback
         claimant = reimbursement.fields.get("claimant", "")
         if not claimant:
             raise ValueError(f"第 {index} 张报销单未识别到“报销人”字段")
-        safe_claimant = "".join(char for char in claimant if char not in '\\/:*?\"<>|').strip()
+        safe_claimant = filename_part(claimant, "报销人")
         number = reimbursement.fields.get("reimbursement_number", "")
-        safe_number = "".join(char for char in number if char not in '\\/:*?\"<>|').strip()
-        if not safe_claimant or not safe_number:
-            raise ValueError(f"第 {index} 张报销单的报销人或报销编号不能作为文件名")
+        safe_number = filename_part(number, f"未编号-{index}")
 
-        output = directory / f"报销{safe_claimant}-{safe_number}.pdf"
+        stem = f"报销{safe_claimant}-{safe_number}"
+        filename = f"{stem}.pdf"
+        duplicate = 2
+        while filename.casefold() in used_filenames:
+            filename = f"{stem}-{duplicate}.pdf"
+            duplicate += 1
+        used_filenames.add(filename.casefold())
+        output = directory / filename
         report("绘制 PDF", int(item_start + item_span * .25), f"正在生成第 {index}/{total_count} 张报销单")
         render_reimbursement_pdf(reimbursement, output, generated_at=generated_at)
         report("核验生成结果", int(item_start + item_span * .72), f"正在核对第 {index}/{total_count} 张报销单的字段和金额")

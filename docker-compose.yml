@@ -11,10 +11,16 @@ services:
     ports:
       - "7287:7287"
     environment:
-      # Other settings load from the .env bundled in the image.
+      # Other settings load from the read-only .env mount at runtime.
       # Keep persistent data on the container volume regardless of local settings.
       JIRA_CREATOR_DATA_DIR: /app/data/jira-creator
     volumes:
+      - type: bind
+        source: ./.env
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
       - invoice-total-tmp:/tmp/invoice_total_preview_jobs
       - invoice-total-jira-tmp:/tmp/invoice_total_jira_jobs
       - invoice-total-weekly-tmp:/tmp/invoice_total_weekly_jobs
